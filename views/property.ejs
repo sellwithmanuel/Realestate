@@ -1,0 +1,190 @@
+<%- include('partials/head', { title: p.address }) %>
+<% if (user.role === 'agent') { %>
+<p class="preview">You are previewing the client’s view. <a href="/admin/p/<%= p.id %>">Back to editing</a></p>
+<% } %>
+
+<section class="hero">
+  <span class="pill light"><%= label(STAGES, p.stage) %></span>
+  <h1><%= p.address %></h1>
+  <p class="sub"><%= p.city %><% if (p.mls_number) { %> · MLS #<%= p.mls_number %><% } %></p>
+  <% if (p.headline) { %><p class="headline"><%= p.headline %></p><% } %>
+  <ol class="stages" aria-label="Sale progress">
+    <% STAGES.forEach(function (s, i) { %>
+    <li class="<%= i < stageIndex ? 'past' : i === stageIndex ? 'now' : '' %>" <%= i === stageIndex ? 'aria-current="step"' : '' %>><i></i><span><%= s[1] %></span></li>
+    <% }) %>
+  </ol>
+</section>
+
+<section class="stats">
+  <% if (p.sale_price) { %><div><b><%= money(p.sale_price) %></b><span><%= p.stage === 'closed' ? 'Sale price' : 'Accepted price' %></span></div>
+  <% } else if (p.list_price) { %><div><b><%= money(p.list_price) %></b><span>List price</span></div><% } %>
+  <% if (stats.daysToClose != null && stats.daysToClose >= 0) { %><div><b><%= stats.daysToClose %></b><span>day<%= stats.daysToClose === 1 ? '' : 's' %> until closing</span></div><% } %>
+  <% if (stats.daysOnMarket != null) { %><div><b><%= stats.daysOnMarket %></b><span>day<%= stats.daysOnMarket === 1 ? '' : 's' %> on market</span></div><% } %>
+  <div><b><%= stats.showings %></b><span>showing<%= stats.showings === 1 ? '' : 's' %></span></div>
+  <div><b><%= stats.guests %></b><span>open house guest<%= stats.guests === 1 ? '' : 's' %></span></div>
+  <div><b><%= stats.offers %></b><span>offer<%= stats.offers === 1 ? '' : 's' %> received</span></div>
+  <div><b><%= progress.done %><em>/<%= progress.total %></em></b><span>milestones complete</span></div>
+</section>
+
+<div class="cols">
+<div class="maincol">
+
+  <% if (nextUp.length) { %>
+  <section class="card">
+    <h2>What’s next</h2>
+    <ul class="next">
+      <% nextUp.forEach(function (m) { %>
+      <li><strong><%= m.title %></strong>
+        <span class="muted"><%= m.status === 'in_progress' ? 'In progress' : 'Coming up' %><%= m.due_date ? ' · ' + fdate(m.due_date) : '' %></span></li>
+      <% }) %>
+    </ul>
+  </section>
+  <% } %>
+
+  <section class="card" id="timeline">
+    <h2>Your timeline</h2>
+    <% PHASES.forEach(function (ph) { var ms = rows.milestones.filter(function (m) { return m.phase === ph[0]; }); if (!ms.length) return;
+       var d = ms.filter(function (m) { return m.status === 'done'; }).length; %>
+    <h3><%= ph[1] %> <small><%= d %> of <%= ms.length %></small></h3>
+    <ol class="timeline">
+      <% ms.forEach(function (m) { %>
+      <li class="<%= m.status %>">
+        <i aria-hidden="true"><%= m.status === 'done' ? '✓' : '' %></i>
+        <div>
+          <strong><%= m.title %></strong>
+          <span class="when">
+            <% if (m.status === 'done') { %>Done<%= m.done_date ? ' ' + fdate(m.done_date) : '' %>
+            <% } else if (m.status === 'in_progress') { %>In progress<%= m.due_date ? ' · due ' + fdate(m.due_date) : '' %>
+            <% } else if (m.due_date) { %>Scheduled <%= fdate(m.due_date) %><% } %>
+          </span>
+          <% if (m.paid_by || m.vendor) { %>
+          <p class="meta">
+            <% if (m.paid_by) { %><span class="tag"><%= m.paid_by === 'Split' ? 'Split buyer / seller' : m.paid_by === 'Agent' ? 'Covered by your agent' : 'Paid by ' + m.paid_by.toLowerCase() %><%= m.cost ? ' · ' + money(m.cost) : '' %></span><% } %>
+            <% if (m.vendor) { %><span><%= m.vendor %></span><% } %>
+          </p>
+          <% } %>
+          <% if (m.notes) { %><p class="note"><%= m.notes %></p><% } %>
+        </div>
+      </li>
+      <% }) %>
+    </ol>
+    <% }) %>
+  </section>
+
+  <% if (rows.offers.length) { %>
+  <section class="card" id="offers">
+    <h2>Offers</h2>
+    <% rows.offers.forEach(function (o) { %>
+    <article class="offer <%= o.status === 'Accepted' ? 'accepted' : '' %>">
+      <header>
+        <div><b class="price"><%= money(o.price) %></b>
+          <span class="muted"><%= o.buyer_name || 'Buyer' %> · received <%= fdate(o.received_date) %></span></div>
+        <span class="pill <%= o.status === 'Accepted' ? 'ok' : '' %>"><%= o.status %></span>
+      </header>
+      <dl>
+        <% if (p.list_price && o.price) { var diff = o.price - p.list_price; %><div><dt>vs. list price</dt><dd><%= diff === 0 ? 'At list' : (diff > 0 ? '+' : '−') + money(Math.abs(diff)) %></dd></div><% } %>
+        <% if (o.financing) { %><div><dt>Financing</dt><dd><%= o.financing %></dd></div><% } %>
+        <% if (o.down_payment) { %><div><dt>Down payment</dt><dd><%= o.down_payment %></dd></div><% } %>
+        <% if (o.deposit) { %><div><dt>Earnest deposit</dt><dd><%= money(o.deposit) %></dd></div><% } %>
+        <% if (o.escrow_days) { %><div><dt>Escrow length</dt><dd><%= o.escrow_days %> days</dd></div><% } %>
+        <% if (o.credits) { %><div><dt>Credits requested</dt><dd><%= o.credits %></dd></div><% } %>
+        <% if (o.expires) { %><div><dt>Expires</dt><dd><%= fdate(o.expires) %></dd></div><% } %>
+        <% if (o.buyer_agent) { %><div><dt>Buyer’s agent</dt><dd><%= o.buyer_agent %></dd></div><% } %>
+      </dl>
+      <% if (o.contingencies) { %><p class="note"><b>Contingencies:</b> <%= o.contingencies %></p><% } %>
+      <% if (o.notes) { %><p class="note agentnote"><b>From <%= agent ? agent.name.split(' ')[0] : 'your agent' %>:</b> <%= o.notes %></p><% } %>
+    </article>
+    <% }) %>
+  </section>
+  <% } %>
+
+  <% if (rows.openhouses.length) { %>
+  <section class="card" id="openhouses">
+    <h2>Open houses</h2>
+    <ul class="rows">
+      <% rows.openhouses.forEach(function (o) { var upcoming = o.date >= today && o.guests == null; %>
+      <li>
+        <div><strong><%= fday(o.date) %>, <%= fdate(o.date) %></strong>
+          <span class="muted"><%= ftime(o.start_time) %><%= o.end_time ? ' – ' + ftime(o.end_time) : '' %></span>
+          <% if (o.notes) { %><p class="note"><%= o.notes %></p><% } %></div>
+        <% if (upcoming) { %><span class="pill">Scheduled</span>
+        <% } else { %><span class="count"><b><%= o.guests == null ? '—' : o.guests %></b> guests</span><% } %>
+      </li>
+      <% }) %>
+    </ul>
+  </section>
+  <% } %>
+
+  <% if (rows.showings.length) { %>
+  <section class="card" id="showings">
+    <h2>Showings & feedback <small><%= stats.showings %> showing<%= stats.showings === 1 ? '' : 's' %> · <%= stats.feedback %> with feedback</small></h2>
+    <ul class="rows">
+      <% rows.showings.forEach(function (s) { %>
+      <li>
+        <div><strong><%= fdate(s.date) %></strong>
+          <span class="muted"><%= s.buyer_agent %></span>
+          <% if (s.feedback) { %><p class="note quote">“<%= s.feedback %>”</p><% } else { %><p class="note muted">Waiting on feedback</p><% } %></div>
+        <% if (s.interest) { %><span class="pill <%= s.interest === 'High' ? 'ok' : '' %>"><%= s.interest %> interest</span><% } %>
+      </li>
+      <% }) %>
+    </ul>
+  </section>
+  <% } %>
+</div>
+
+<aside class="sidecol">
+  <% if (rows.updates.length) { %>
+  <section class="card">
+    <h2>Latest from <%= agent ? agent.name.split(' ')[0] : 'your agent' %></h2>
+    <ul class="updates">
+      <% rows.updates.forEach(function (u) { %>
+      <li><time><%= fdate(u.date) %></time><p class="note"><%= u.message %></p></li>
+      <% }) %>
+    </ul>
+  </section>
+  <% } %>
+
+  <% if (p.escrow_company || p.closing_date || p.escrow_opened) { %>
+  <section class="card" id="escrow">
+    <h2>Escrow</h2>
+    <dl class="kv">
+      <% if (p.escrow_company) { %><div><dt>Escrow company</dt><dd><%= p.escrow_company %></dd></div><% } %>
+      <% if (p.escrow_number) { %><div><dt>Escrow #</dt><dd><%= p.escrow_number %></dd></div><% } %>
+      <% if (p.escrow_opened) { %><div><dt>Opened</dt><dd><%= fdate(p.escrow_opened) %></dd></div><% } %>
+      <% if (p.closing_date) { %><div><dt>Closing date</dt><dd><strong><%= fdate(p.closing_date) %></strong></dd></div><% } %>
+    </dl>
+  </section>
+  <% } %>
+
+  <% var costs = rows.milestones.filter(function (m) { return m.paid_by; }); if (costs.length) { %>
+  <section class="card" id="costs">
+    <h2>Who pays for what</h2>
+    <table class="costs">
+      <% costs.forEach(function (m) { %>
+      <tr><td><%= m.title %><% if (m.cost) { %> <small><%= money(m.cost) %></small><% } %></td>
+          <td><span class="tag <%= m.paid_by === 'Seller' ? 'you' : '' %>"><%= m.paid_by === 'Seller' ? 'You' : m.paid_by === 'Agent' ? 'Your agent' : m.paid_by %></span></td></tr>
+      <% }) %>
+    </table>
+  </section>
+  <% } %>
+
+  <section class="card" id="team">
+    <h2>Your team</h2>
+    <ul class="team">
+      <% if (agent) { %>
+      <li><small>Your listing agent</small><strong><%= agent.name %></strong>
+        <span class="links"><% if (agent.phone) { %><a href="tel:<%= agent.phone.replace(/[^\d+]/g, '') %>"><%= agent.phone %></a><% } %>
+        <a href="mailto:<%= agent.email %>"><%= agent.email %></a></span></li>
+      <% } %>
+      <% rows.contacts.forEach(function (c) { %>
+      <li><small><%= c.role %></small><strong><%= c.name %></strong><% if (c.company) { %><span class="muted"><%= c.company %></span><% } %>
+        <span class="links"><% if (c.phone) { %><a href="tel:<%= c.phone.replace(/[^\d+]/g, '') %>"><%= c.phone %></a><% } %>
+        <% if (c.email) { %><a href="mailto:<%= c.email %>"><%= c.email %></a><% } %></span></li>
+      <% }) %>
+    </ul>
+  </section>
+
+  <% if (p.listing_url) { %><p><a class="btn ghost full" href="<%= p.listing_url %>" target="_blank" rel="noopener noreferrer">View your listing online →</a></p><% } %>
+</aside>
+</div>
+<%- include('partials/foot') %>

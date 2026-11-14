@@ -1,0 +1,13 @@
+<%- include('partials/head', { title: 'Set up', bodyClass: 'auth' }) %>
+<section class="authcard">
+  <h1>Set up your portal</h1>
+  <p class="muted">Create your agent login. This page only appears once — after this, you create logins for your clients.</p>
+  <form method="post" action="/setup" class="stack">
+    <label><span>Your name</span><input name="name" value="<%= form.name || '' %>" required autofocus></label>
+    <label><span>Email</span><input type="email" name="email" value="<%= form.email || '' %>" required></label>
+    <label><span>Phone (shown to clients)</span><input type="tel" name="phone" value="<%= form.phone || '' %>"></label>
+    <label><span>Password (8+ characters)</span><input type="password" name="password" minlength="8" autocomplete="new-password" required></label>
+    <button class="btn">Create my login</button>
+  </form>
+</section>
+<%- include('partials/foot') %>

@@ -1,0 +1,95 @@
+<%- include('../partials/head', { title: p.address }) %>
+<p><a href="/admin">← All sales</a></p>
+<div class="adminhead">
+  <div><h1><%= p.address %></h1><p class="muted"><%= p.city %></p></div>
+  <a class="btn ghost" href="/p/<%= p.id %>">View what the client sees →</a>
+</div>
+<nav class="jump">
+  <a href="#details">Details</a><a href="#access">Client access</a>
+  <% Object.keys(KINDS).forEach(function (k) { %><a href="#<%= k %>"><%= KINDS[k].title %></a><% }) %>
+</nav>
+
+<section class="card" id="details">
+  <h2>Sale details</h2>
+  <form method="post" action="/admin/p/<%= p.id %>">
+    <%- include('../partials/fields', { def: { fields: PROPERTY_FIELDS }, r: p }) %>
+    <button class="btn">Save details</button>
+  </form>
+</section>
+
+<section class="card" id="access">
+  <h2>Client access</h2>
+  <p class="muted">Each client signs in with their email and the password you set here. They only see this sale.</p>
+  <div class="list">
+  <% linked.forEach(function (c) { %>
+    <div class="listrow">
+      <span><strong><%= c.name %></strong><small><%= c.email %></small></span>
+      <span class="right rowactions">
+        <a href="/admin/clients/<%= c.id %>">Edit / reset password</a>
+        <form method="post" action="/admin/p/<%= p.id %>/clients/<%= c.id %>/remove"><button class="link danger">Remove access</button></form>
+      </span>
+    </div>
+  <% }) %>
+  </div>
+  <details class="add" <%= linked.length ? '' : 'open' %>>
+    <summary>+ Create a login for a client</summary>
+    <form method="post" action="/admin/p/<%= p.id %>/clients">
+      <div class="fields">
+        <label><span>Client name *</span><input name="name" required></label>
+        <label><span>Email *</span><input type="email" name="email" required></label>
+        <label class="wide"><span>Password * (8+ characters — you share it with them)</span>
+          <span class="inline"><input name="password" id="newpw" minlength="8" autocomplete="off" required>
+          <button type="button" class="btn ghost" onclick="var c='ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789',a=new Uint32Array(12),s='';crypto.getRandomValues(a);a.forEach(function(n){s+=c[n%c.length]});document.getElementById('newpw').value=s">Suggest one</button></span>
+        </label>
+      </div>
+      <button class="btn">Create login</button>
+    </form>
+  </details>
+  <% if (others.length) { %>
+  <details class="add">
+    <summary>+ Give access to an existing client</summary>
+    <form method="post" action="/admin/p/<%= p.id %>/clients">
+      <div class="fields"><label class="wide"><span>Client</span><select name="user_id">
+        <% others.forEach(function (c) { %><option value="<%= c.id %>"><%= c.name %> (<%= c.email %>)</option><% }) %>
+      </select></label></div>
+      <button class="btn">Give access</button>
+    </form>
+  </details>
+  <% } %>
+</section>
+
+<% Object.keys(KINDS).forEach(function (kind) { var def = KINDS[kind]; %>
+<section class="card" id="<%= kind %>">
+  <h2><%= def.title %></h2>
+  <% if (!rows[kind].length) { %><p class="muted">Nothing here yet.</p><% } %>
+  <% rows[kind].forEach(function (r) { %>
+  <div class="editrow" <% if (kind === 'milestones') { %>id="m<%= r.id %>"<% } %>>
+    <% if (kind === 'milestones') { %>
+    <form method="post" action="/admin/p/<%= p.id %>/milestones/<%= r.id %>/toggle">
+      <button class="check <%= r.status %>" title="<%= r.status === 'done' ? 'Mark not done' : 'Mark done today' %>" aria-label="<%= r.status === 'done' ? 'Mark not done' : 'Mark done' %>: <%= r.title %>"><%= r.status === 'done' ? '✓' : '' %></button>
+    </form>
+    <% } %>
+    <details>
+      <summary><%= def.summary(r, helpers) %></summary>
+      <form method="post" action="/admin/p/<%= p.id %>/<%= kind %>/<%= r.id %>">
+        <%- include('../partials/fields', { def: def, r: r }) %>
+        <button class="btn">Save</button>
+        <button class="link danger" formaction="/admin/p/<%= p.id %>/<%= kind %>/<%= r.id %>/delete" formnovalidate onclick="return confirm('Delete this <%= def.singular %>?')">Delete</button>
+      </form>
+    </details>
+  </div>
+  <% }) %>
+  <details class="add">
+    <summary>+ Add <%= def.singular %></summary>
+    <form method="post" action="/admin/p/<%= p.id %>/<%= kind %>">
+      <%- include('../partials/fields', { def: def, r: {} }) %>
+      <button class="btn">Add <%= def.singular %></button>
+    </form>
+  </details>
+</section>
+<% }) %>
+
+<form method="post" action="/admin/p/<%= p.id %>/delete" onsubmit="return confirm('Delete this entire sale and everything in it? This cannot be undone.')">
+  <button class="link danger">Delete this sale</button>
+</form>
+<%- include('../partials/foot') %>

@@ -1,0 +1,12 @@
+<%- include('partials/head', { title: 'Sign in', bodyClass: 'auth' }) %>
+<section class="authcard">
+  <h1>Welcome back</h1>
+  <p class="muted">Sign in to see exactly where your home sale stands.</p>
+  <form method="post" action="/login" class="stack">
+    <label><span>Email</span><input type="email" name="email" value="<%= email %>" autocomplete="username" required autofocus></label>
+    <label><span>Password</span><input type="password" name="password" autocomplete="current-password" required></label>
+    <button class="btn">Sign in</button>
+  </form>
+  <p class="muted small">Forgot your password? Contact your agent and they will reset it for you.</p>
+</section>
+<%- include('partials/foot') %>

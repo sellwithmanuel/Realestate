@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title><%= title %> · <%= brand %></title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="<%= typeof bodyClass === 'string' ? bodyClass : '' %>">
+<header class="top">
+  <a class="brand" href="/"><%= brand %><small>Client Portal</small></a>
+  <% if (user) { %>
+  <nav>
+    <% if (user.role === 'agent') { %><a href="/admin">All sales</a><% } %>
+    <a href="/account"><%= user.name.split(' ')[0] %>’s account</a>
+    <form method="post" action="/logout"><button class="link">Sign out</button></form>
+  </nav>
+  <% } %>
+</header>
+<main>
+<% if (typeof flash === 'string' && flash) { %><p class="flash" role="status"><%= flash %></p><% } %>
+<% if (error) { %><p class="flash err" role="alert"><%= error %></p><% } %>

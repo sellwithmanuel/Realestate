@@ -1,0 +1,442 @@
+const path = require('path');
+const crypto = require('crypto');
+const express = require('express');
+const { db, hashPassword, verifyPassword, createUser, createProperty } = require('./db');
+const { STAGES, PHASES, STATUSES, PROPERTY_FIELDS, KINDS, label } = require('./kinds');
+
+const app = express();
+const PROD = process.env.NODE_ENV === 'production';
+const BRAND = process.env.BRAND_NAME || 'Sell With Manuel';
+const TIME_ZONE = process.env.TIME_ZONE || 'America/Los_Angeles';
+const SESSION_DAYS = 30;
+
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
+app.use(express.static(path.join(__dirname, 'public'), { maxAge: PROD ? '1h' : 0 }));
+app.use(express.urlencoded({ extended: false, limit: '200kb' }));
+
+// ---------- formatting helpers (also available in every view) ----------
+const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE }).format(new Date());
+const toUTC = (d) => { const [y, m, dd] = d.split('-').map(Number); return Date.UTC(y, m - 1, dd); };
+const helpers = {
+  money: (n) => (n == null || n === '' ? '' : '$' + Math.round(Number(n)).toLocaleString('en-US')),
+  fdate: (d) => {
+    if (!d) return '';
+    return new Date(toUTC(d)).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' });
+  },
+  fday: (d) => (d ? new Date(toUTC(d)).toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'long' }) : ''),
+  ftime: (t) => {
+    if (!t) return '';
+    const [h, m] = t.split(':').map(Number);
+    return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+  },
+  daysBetween: (a, b) => Math.round((toUTC(b) - toUTC(a)) / 86400000),
+  label,
+};
+
+// ---------- sessions ----------
+const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
+
+function readCookie(req, name) {
+  const raw = req.headers.cookie || '';
+  for (const part of raw.split(';')) {
+    const i = part.indexOf('=');
+    if (i > 0 && part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return null;
+}
+
+function startSession(res, userId) {
+  const token = crypto.randomBytes(32).toString('hex');
+  const expires = Date.now() + SESSION_DAYS * 86400000;
+  db.prepare('INSERT INTO sessions (token_hash, user_id, expires) VALUES (?,?,?)').run(sha(token), userId, expires);
+  res.cookie('sid', token, { httpOnly: true, sameSite: 'lax', secure: PROD, maxAge: SESSION_DAYS * 86400000 });
+}
+
+app.use((req, res, next) => {
+  res.set({
+    'X-Frame-Options': 'DENY',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'same-origin',
+    'Cache-Control': 'no-store',
+  });
+  // Reject cross-site form posts.
+  if (req.method === 'POST' && req.headers.origin) {
+    let originHost = '';
+    try { originHost = new URL(req.headers.origin).host; } catch { /* malformed */ }
+    if (originHost !== req.headers.host) return res.status(403).send('Forbidden');
+  }
+  const token = readCookie(req, 'sid');
+  if (token) {
+    const s = db.prepare('SELECT * FROM sessions WHERE token_hash = ?').get(sha(token));
+    if (s && s.expires > Date.now()) {
+      req.user = db.prepare('SELECT id, name, email, phone, role FROM users WHERE id = ?').get(s.user_id);
+      req.sessionKey = s.token_hash;
+      if (s.flash && req.method === 'GET') {
+        res.locals.flash = s.flash;
+        db.prepare('UPDATE sessions SET flash = NULL WHERE token_hash = ?').run(s.token_hash);
+      }
+    }
+  }
+  Object.assign(res.locals, helpers, { user: req.user, brand: BRAND, today: today(), error: null, STAGES, PHASES, STATUSES });
+  next();
+});
+
+const flash = (req, msg) => {
+  if (req.sessionKey) db.prepare('UPDATE sessions SET flash = ? WHERE token_hash = ?').run(msg, req.sessionKey);
+};
+const agentExists = () => !!db.prepare("SELECT 1 FROM users WHERE role = 'agent'").get();
+const home = (user) => (user.role === 'agent' ? '/admin' : '/portal');
+const cleanEmail = (e) => String(e || '').trim().toLowerCase();
+const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+
+function requireUser(req, res, next) {
+  if (!req.user) return res.redirect('/login');
+  next();
+}
+function requireAgent(req, res, next) {
+  if (!req.user) return res.redirect('/login');
+  if (req.user.role !== 'agent') return res.status(403).render('message', { title: 'Not available', message: 'This page is for your agent only.' });
+  next();
+}
+
+// ---------- sign in / first-time setup ----------
+app.get('/', (req, res) => res.redirect(req.user ? home(req.user) : agentExists() ? '/login' : '/setup'));
+
+app.get('/setup', (req, res) => {
+  if (agentExists()) return res.redirect('/login');
+  res.render('setup', { form: {} });
+});
+
+app.post('/setup', (req, res) => {
+  if (agentExists()) return res.redirect('/login');
+  const name = String(req.body.name || '').trim();
+  const email = cleanEmail(req.body.email);
+  const phone = String(req.body.phone || '').trim();
+  const password = String(req.body.password || '');
+  const fail = (error) => res.status(400).render('setup', { error, form: { name, email, phone } });
+  if (!name || !validEmail(email)) return fail('Please enter your name and a valid email.');
+  if (password.length < 8) return fail('Choose a password with at least 8 characters.');
+  const id = createUser({ name, email, phone, password, role: 'agent' });
+  startSession(res, id);
+  res.redirect('/admin');
+});
+
+const attempts = new Map(); // key -> { count, resetAt }
+function tooManyAttempts(key) {
+  const a = attempts.get(key);
+  if (!a || a.resetAt < Date.now()) return false;
+  return a.count >= 8;
+}
+function recordFailure(key) {
+  const a = attempts.get(key);
+  if (!a || a.resetAt < Date.now()) attempts.set(key, { count: 1, resetAt: Date.now() + 15 * 60000 });
+  else a.count++;
+}
+
+app.get('/login', (req, res) => {
+  if (req.user) return res.redirect(home(req.user));
+  if (!agentExists()) return res.redirect('/setup');
+  res.render('login', { email: '' });
+});
+
+app.post('/login', (req, res) => {
+  const email = cleanEmail(req.body.email);
+  const password = String(req.body.password || '');
+  const key = `${req.ip}|${email}`;
+  if (tooManyAttempts(key)) {
+    return res.status(429).render('login', { email, error: 'Too many attempts. Please wait 15 minutes and try again.' });
+  }
+  const u = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+  if (!u || !verifyPassword(password, u.password_hash)) {
+    recordFailure(key);
+    return res.status(401).render('login', { email, error: 'That email and password do not match. Please try again.' });
+  }
+  attempts.delete(key);
+  startSession(res, u.id);
+  res.redirect(home(u));
+});
+
+app.post('/logout', (req, res) => {
+  if (req.sessionKey) db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(req.sessionKey);
+  res.clearCookie('sid');
+  res.redirect('/login');
+});
+
+// ---------- account ----------
+app.get('/account', requireUser, (req, res) => res.render('account'));
+
+app.post('/account', requireUser, (req, res) => {
+  const current = String(req.body.current || '');
+  const next = String(req.body.password || '');
+  const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
+  if (req.user.role === 'agent') {
+    const name = String(req.body.name || '').trim();
+    if (name) {
+      db.prepare('UPDATE users SET name = ?, phone = ? WHERE id = ?').run(name, String(req.body.phone || '').trim(), req.user.id);
+      Object.assign(res.locals.user, { name, phone: String(req.body.phone || '').trim() });
+    }
+  }
+  if (next) {
+    if (!verifyPassword(current, row.password_hash)) return res.status(400).render('account', { error: 'Your current password is not correct.' });
+    if (next.length < 8) return res.status(400).render('account', { error: 'Choose a new password with at least 8 characters.' });
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(next), req.user.id);
+    // Sign out every other device.
+    db.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?').run(req.user.id, req.sessionKey);
+  }
+  flash(req, 'Saved.');
+  res.redirect('/account');
+});
+
+// ---------- client portal ----------
+app.get('/portal', requireUser, (req, res) => {
+  if (req.user.role === 'agent') return res.redirect('/admin');
+  const props = db
+    .prepare('SELECT p.* FROM properties p JOIN property_clients pc ON pc.property_id = p.id WHERE pc.user_id = ? ORDER BY p.id DESC')
+    .all(req.user.id);
+  if (props.length === 1) return res.redirect(`/p/${props[0].id}`);
+  res.render('portal', { props });
+});
+
+app.get('/p/:id', requireUser, (req, res) => {
+  const p = db.prepare('SELECT * FROM properties WHERE id = ?').get(req.params.id);
+  const allowed =
+    p && (req.user.role === 'agent' || db.prepare('SELECT 1 FROM property_clients WHERE property_id = ? AND user_id = ?').get(p.id, req.user.id));
+  if (!allowed) return res.status(404).render('message', { title: 'Not found', message: 'We could not find that page.' });
+
+  const rows = {};
+  for (const [kind, def] of Object.entries(KINDS)) {
+    rows[kind] = db.prepare(`SELECT * FROM ${def.table} WHERE property_id = ? ORDER BY ${def.order}`).all(p.id);
+  }
+  const t = today();
+  const domEnd = p.escrow_opened || (p.stage === 'closed' && p.closing_date) || t;
+  const stats = {
+    daysOnMarket: p.list_date && p.list_date <= t ? Math.max(0, helpers.daysBetween(p.list_date, domEnd < t ? domEnd : t)) : null,
+    showings: rows.showings.length,
+    feedback: rows.showings.filter((s) => s.feedback).length,
+    openHouses: rows.openhouses.filter((o) => o.date <= t).length,
+    guests: rows.openhouses.reduce((n, o) => n + (o.guests || 0), 0),
+    offers: rows.offers.length,
+    daysToClose: p.closing_date && p.stage !== 'closed' ? helpers.daysBetween(t, p.closing_date) : null,
+  };
+  const done = rows.milestones.filter((m) => m.status === 'done').length;
+  res.render('property', {
+    p, rows, stats,
+    progress: { done, total: rows.milestones.length },
+    nextUp: rows.milestones.filter((m) => m.status !== 'done').slice(0, 3),
+    agent: db.prepare("SELECT name, email, phone FROM users WHERE role = 'agent' ORDER BY id LIMIT 1").get(),
+    stageIndex: Math.max(0, STAGES.findIndex((s) => s[0] === p.stage)),
+  });
+});
+
+// ---------- agent admin ----------
+app.get('/admin', requireAgent, (req, res) => {
+  const props = db
+    .prepare(
+      `SELECT p.*,
+        (SELECT group_concat(u.name, ', ') FROM property_clients pc JOIN users u ON u.id = pc.user_id WHERE pc.property_id = p.id) AS clients,
+        (SELECT count(*) FROM milestones m WHERE m.property_id = p.id AND m.status = 'done') AS done,
+        (SELECT count(*) FROM milestones m WHERE m.property_id = p.id) AS total
+       FROM properties p ORDER BY (p.stage = 'closed'), p.id DESC`
+    )
+    .all();
+  const clients = db
+    .prepare(
+      `SELECT u.id, u.name, u.email,
+        (SELECT group_concat(p.address, '; ') FROM property_clients pc JOIN properties p ON p.id = pc.property_id WHERE pc.user_id = u.id) AS homes
+       FROM users u WHERE u.role = 'client' ORDER BY u.name`
+    )
+    .all();
+  res.render('admin/home', { props, clients });
+});
+
+app.post('/admin/properties', requireAgent, (req, res) => {
+  const address = String(req.body.address || '').trim();
+  if (!address) return res.redirect('/admin');
+  const id = createProperty(address, String(req.body.city || '').trim());
+  flash(req, 'Sale created with the standard milestone checklist. Fill in the details and give your client access below.');
+  res.redirect(`/admin/p/${id}`);
+});
+
+// Validate and normalize submitted values against a field list.
+function readFields(fields, body) {
+  const out = {};
+  for (const f of fields) {
+    let v = String(body[f.name] ?? '').trim();
+    if (f.type === 'number' || f.type === 'money') {
+      v = v === '' || !Number.isFinite(Number(v)) ? null : Number(v);
+    } else if (f.type === 'date') {
+      v = /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+    } else if (f.type === 'time') {
+      v = /^\d{2}:\d{2}/.test(v) ? v.slice(0, 5) : null;
+    } else if (f.type === 'select') {
+      const allowed = f.options.map((o) => (Array.isArray(o) ? o[0] : o));
+      if (!allowed.includes(v)) v = allowed[0];
+    } else if (f.type === 'url') {
+      v = /^https?:\/\//i.test(v) ? v.slice(0, 500) : null;
+    } else {
+      v = v.slice(0, 4000) || null;
+    }
+    if (f.required && (v == null || v === '')) return null;
+    out[f.name] = v;
+  }
+  return out;
+}
+
+function loadProperty(req, res, next) {
+  req.property = db.prepare('SELECT * FROM properties WHERE id = ?').get(req.params.pid);
+  if (!req.property) return res.status(404).render('message', { title: 'Not found', message: 'That sale no longer exists.' });
+  next();
+}
+
+app.get('/admin/p/:pid', requireAgent, loadProperty, (req, res) => {
+  const p = req.property;
+  const rows = {};
+  for (const [kind, def] of Object.entries(KINDS)) {
+    rows[kind] = db.prepare(`SELECT * FROM ${def.table} WHERE property_id = ? ORDER BY ${def.order}`).all(p.id);
+  }
+  const linked = db
+    .prepare('SELECT u.id, u.name, u.email FROM users u JOIN property_clients pc ON pc.user_id = u.id WHERE pc.property_id = ? ORDER BY u.name')
+    .all(p.id);
+  const others = db
+    .prepare("SELECT id, name, email FROM users WHERE role = 'client' AND id NOT IN (SELECT user_id FROM property_clients WHERE property_id = ?) ORDER BY name")
+    .all(p.id);
+  res.render('admin/property', { p, rows, linked, others, KINDS, PROPERTY_FIELDS, helpers });
+});
+
+app.post('/admin/p/:pid', requireAgent, loadProperty, (req, res) => {
+  const v = readFields(PROPERTY_FIELDS, req.body);
+  if (!v) { flash(req, 'The street address is required.'); return res.redirect(`/admin/p/${req.property.id}`); }
+  const cols = Object.keys(v);
+  db.prepare(`UPDATE properties SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`).run(...cols.map((c) => v[c]), req.property.id);
+  flash(req, 'Sale details saved.');
+  res.redirect(`/admin/p/${req.property.id}`);
+});
+
+app.post('/admin/p/:pid/delete', requireAgent, loadProperty, (req, res) => {
+  db.prepare('DELETE FROM properties WHERE id = ?').run(req.property.id);
+  flash(req, `Deleted ${req.property.address}.`);
+  res.redirect('/admin');
+});
+
+// Give a client access: either link an existing login or create a new one.
+app.post('/admin/p/:pid/clients', requireAgent, loadProperty, (req, res) => {
+  const back = `/admin/p/${req.property.id}#access`;
+  let userId = Number(req.body.user_id) || null;
+  if (userId) {
+    if (!db.prepare("SELECT 1 FROM users WHERE id = ? AND role = 'client'").get(userId)) return res.redirect(back);
+  } else {
+    const name = String(req.body.name || '').trim();
+    const email = cleanEmail(req.body.email);
+    const password = String(req.body.password || '');
+    if (!name || !validEmail(email)) { flash(req, 'Enter the client’s name and a valid email.'); return res.redirect(back); }
+    if (password.length < 8) { flash(req, 'The password needs at least 8 characters.'); return res.redirect(back); }
+    if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) {
+      flash(req, `${email} already has a login. Pick them from the “existing client” list instead.`);
+      return res.redirect(back);
+    }
+    userId = createUser({ name, email, password, role: 'client' });
+    flash(req, `Login created for ${name}. Send them this page’s web address, their email (${email}) and the password you just set. It is not shown again.`);
+  }
+  db.prepare('INSERT OR IGNORE INTO property_clients (property_id, user_id) VALUES (?,?)').run(req.property.id, userId);
+  res.redirect(back);
+});
+
+app.post('/admin/p/:pid/clients/:uid/remove', requireAgent, loadProperty, (req, res) => {
+  db.prepare('DELETE FROM property_clients WHERE property_id = ? AND user_id = ?').run(req.property.id, req.params.uid);
+  res.redirect(`/admin/p/${req.property.id}#access`);
+});
+
+app.post('/admin/p/:pid/milestones/:id/toggle', requireAgent, loadProperty, (req, res) => {
+  const m = db.prepare('SELECT * FROM milestones WHERE id = ? AND property_id = ?').get(req.params.id, req.property.id);
+  if (m) {
+    if (m.status === 'done') db.prepare("UPDATE milestones SET status = 'pending', done_date = NULL WHERE id = ?").run(m.id);
+    else db.prepare("UPDATE milestones SET status = 'done', done_date = ? WHERE id = ?").run(today(), m.id);
+  }
+  res.redirect(`/admin/p/${req.property.id}#m${req.params.id}`);
+});
+
+// Generic add / edit / delete for everything that hangs off a sale.
+function loadKind(req, res, next) {
+  req.kind = Object.hasOwn(KINDS, req.params.kind) ? KINDS[req.params.kind] : null;
+  if (!req.kind) return res.status(404).send('Not found');
+  next();
+}
+
+app.post('/admin/p/:pid/:kind', requireAgent, loadProperty, loadKind, (req, res) => {
+  const back = `/admin/p/${req.property.id}#${req.params.kind}`;
+  const v = readFields(req.kind.fields, req.body);
+  if (!v) { flash(req, 'Please fill in the required fields.'); return res.redirect(back); }
+  if (req.params.kind === 'milestones' && v.sort == null) {
+    v.sort = db.prepare('SELECT coalesce(max(sort), 0) + 10 AS s FROM milestones WHERE property_id = ? AND phase = ?').get(req.property.id, v.phase).s;
+  }
+  if ('sort' in v && v.sort == null) v.sort = 0;
+  const cols = Object.keys(v);
+  db.prepare(`INSERT INTO ${req.kind.table} (property_id, ${cols.join(', ')}) VALUES (?, ${cols.map(() => '?').join(', ')})`).run(
+    req.property.id, ...cols.map((c) => v[c])
+  );
+  res.redirect(back);
+});
+
+app.post('/admin/p/:pid/:kind/:id', requireAgent, loadProperty, loadKind, (req, res) => {
+  const back = `/admin/p/${req.property.id}#${req.params.kind}`;
+  const v = readFields(req.kind.fields, req.body);
+  if (!v) { flash(req, 'Please fill in the required fields.'); return res.redirect(back); }
+  if ('sort' in v && v.sort == null) v.sort = 0;
+  if (req.params.kind === 'milestones' && v.status === 'done' && !v.done_date) v.done_date = today();
+  const cols = Object.keys(v);
+  db.prepare(`UPDATE ${req.kind.table} SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ? AND property_id = ?`).run(
+    ...cols.map((c) => v[c]), req.params.id, req.property.id
+  );
+  res.redirect(back);
+});
+
+app.post('/admin/p/:pid/:kind/:id/delete', requireAgent, loadProperty, loadKind, (req, res) => {
+  db.prepare(`DELETE FROM ${req.kind.table} WHERE id = ? AND property_id = ?`).run(req.params.id, req.property.id);
+  res.redirect(`/admin/p/${req.property.id}#${req.params.kind}`);
+});
+
+// Client logins
+app.get('/admin/clients/:uid', requireAgent, (req, res) => {
+  const c = db.prepare("SELECT id, name, email FROM users WHERE id = ? AND role = 'client'").get(req.params.uid);
+  if (!c) return res.redirect('/admin');
+  res.render('admin/client', { c });
+});
+
+app.post('/admin/clients/:uid', requireAgent, (req, res) => {
+  const c = db.prepare("SELECT id FROM users WHERE id = ? AND role = 'client'").get(req.params.uid);
+  if (!c) return res.redirect('/admin');
+  const back = `/admin/clients/${c.id}`;
+  const name = String(req.body.name || '').trim();
+  const email = cleanEmail(req.body.email);
+  const password = String(req.body.password || '');
+  if (!name || !validEmail(email)) { flash(req, 'Enter a name and a valid email.'); return res.redirect(back); }
+  if (db.prepare('SELECT 1 FROM users WHERE email = ? AND id != ?').get(email, c.id)) { flash(req, 'Another login already uses that email.'); return res.redirect(back); }
+  if (password && password.length < 8) { flash(req, 'The password needs at least 8 characters.'); return res.redirect(back); }
+  db.prepare('UPDATE users SET name = ?, email = ? WHERE id = ?').run(name, email, c.id);
+  if (password) {
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), c.id);
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(c.id);
+  }
+  flash(req, password ? 'Saved. Share the new password with your client.' : 'Saved.');
+  res.redirect(back);
+});
+
+app.post('/admin/clients/:uid/delete', requireAgent, (req, res) => {
+  db.prepare("DELETE FROM users WHERE id = ? AND role = 'client'").run(req.params.uid);
+  flash(req, 'Client login deleted.');
+  res.redirect('/admin');
+});
+
+app.use((req, res) => res.status(404).render('message', { title: 'Not found', message: 'We could not find that page.' }));
+app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
+  console.error(err);
+  res.status(500).send('Something went wrong. Please try again.');
+});
+
+setInterval(() => db.prepare('DELETE FROM sessions WHERE expires < ?').run(Date.now()), 3600000).unref();
+
+const port = Number(process.env.PORT) || 3000;
+app.listen(port, () => console.log(`${BRAND} client portal running on port ${port}`));

@@ -1,0 +1,19 @@
+{
+  "name": "client-home-sale-portal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Client portal where home sellers log in and follow every milestone of their sale.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "seed": "node seed.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.2.0",
+    "ejs": "^7.0.2",
+    "express": "^5.3.0"
+  }
+}

@@ -1,0 +1,37 @@
+<%- include('../partials/head', { title: 'All sales' }) %>
+<h1>Your sales</h1>
+<section class="card">
+  <% if (!props.length) { %><p class="muted">No sales yet. Add your first one below.</p><% } %>
+  <div class="list">
+  <% props.forEach(function (p) { %>
+    <a class="listrow" href="/admin/p/<%= p.id %>">
+      <span><strong><%= p.address %></strong><small><%= p.clients || 'No client login linked yet' %></small></span>
+      <span class="right"><span class="pill"><%= label(STAGES, p.stage) %></span><small><%= p.done %> of <%= p.total %> milestones</small></span>
+    </a>
+  <% }) %>
+  </div>
+  <details class="add" <%= props.length ? '' : 'open' %>>
+    <summary>+ Add a new sale</summary>
+    <form method="post" action="/admin/properties">
+      <div class="fields">
+        <label class="wide"><span>Street address *</span><input name="address" required></label>
+        <label class="wide"><span>City, state, ZIP</span><input name="city"></label>
+      </div>
+      <button class="btn">Create sale</button>
+    </form>
+  </details>
+</section>
+
+<h2 class="sect">Client logins</h2>
+<section class="card">
+  <% if (!clients.length) { %><p class="muted">Client logins are created from inside a sale, under “Client access”.</p><% } %>
+  <div class="list">
+  <% clients.forEach(function (c) { %>
+    <a class="listrow" href="/admin/clients/<%= c.id %>">
+      <span><strong><%= c.name %></strong><small><%= c.email %></small></span>
+      <span class="right"><small><%= c.homes || 'Not linked to a sale' %></small></span>
+    </a>
+  <% }) %>
+  </div>
+</section>
+<%- include('../partials/foot') %>

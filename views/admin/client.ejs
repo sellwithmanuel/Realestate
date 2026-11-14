@@ -1,0 +1,15 @@
+<%- include('../partials/head', { title: c.name }) %>
+<p><a href="/admin">← All sales</a></p>
+<section class="card narrow">
+  <h1><%= c.name %></h1>
+  <form method="post" action="/admin/clients/<%= c.id %>" class="stack">
+    <label><span>Name</span><input name="name" value="<%= c.name %>" required></label>
+    <label><span>Email (their login)</span><input type="email" name="email" value="<%= c.email %>" required></label>
+    <label><span>Set a new password (leave blank to keep the current one)</span><input name="password" minlength="8" autocomplete="off"></label>
+    <button class="btn">Save</button>
+  </form>
+  <form method="post" action="/admin/clients/<%= c.id %>/delete" onsubmit="return confirm('Delete this login? The client will no longer be able to sign in.')">
+    <button class="link danger">Delete this login</button>
+  </form>
+</section>
+<%- include('../partials/foot') %>

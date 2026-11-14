@@ -1,0 +1,15 @@
+<%- include('partials/head', { title: 'Your homes' }) %>
+<h1>Hello, <%= user.name.split(' ')[0] %></h1>
+<% if (!props.length) { %>
+  <section class="card"><p>Your agent has not linked a home to your login yet. Check back soon.</p></section>
+<% } %>
+<div class="grid2">
+<% props.forEach(function (p) { %>
+  <a class="card proplink" href="/p/<%= p.id %>">
+    <span class="pill"><%= label(STAGES, p.stage) %></span>
+    <h2><%= p.address %></h2>
+    <p class="muted"><%= p.city %></p>
+  </a>
+<% }) %>
+</div>
+<%- include('partials/foot') %>
