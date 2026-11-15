@@ -133,6 +133,29 @@
 </div>
 
 <aside class="sidecol">
+  <% if (agent) { var first = agent.name.split(' ')[0]; %>
+  <section class="card agentcard" id="agent">
+    <div class="agenttop">
+      <% if (site.headshot) { %><img src="/brand/<%= site.headshot %>" alt="<%= agent.name %>"><% } %>
+      <div><small>Your listing agent</small><strong><%= agent.name %></strong>
+        <% if (site.title) { %><span class="muted"><%= site.title %></span><% } %>
+        <% if (site.license) { %><span class="muted">Lic. <%= site.license %></span><% } %></div>
+    </div>
+    <span class="links"><% if (agent.phone) { %><a href="tel:<%= agent.phone.replace(/[^\d+]/g, '') %>"><%= agent.phone %></a><% } %>
+      <a href="mailto:<%= agent.email %>"><%= agent.email %></a>
+      <% if (site.website) { %><a href="<%= site.website %>" target="_blank" rel="noopener noreferrer"><%= site.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '') %></a><% } %></span>
+    <% if (site.about) { %><p class="note about"><%= site.about %></p><% } %>
+    <% if (user.role !== 'agent') { %><button type="button" class="btn full" data-chat-open>Message <%= first %></button><% } %>
+  </section>
+  <% } %>
+
+  <% if (p.value_url) { %>
+  <section class="card valuecard" id="value">
+    <h2>Your home’s value</h2>
+    <p class="muted">See your current estimated value, equity and neighborhood trends.</p>
+    <a class="btn full" href="<%= p.value_url %>" target="_blank" rel="noopener noreferrer">Check my home value →</a>
+  </section>
+  <% } %>
   <% if (rows.updates.length) { %>
   <section class="card">
     <h2>Latest from <%= agent ? agent.name.split(' ')[0] : 'your agent' %></h2>
@@ -168,14 +191,21 @@
   </section>
   <% } %>
 
+  <% if (documents.length) { %>
+  <section class="card" id="documents">
+    <h2>Your documents</h2>
+    <ul class="docs">
+      <% documents.forEach(function (d) { %>
+      <li><a href="/p/<%= p.id %>/docs/<%= d.id %>" target="_blank" rel="noopener"><%= d.title %></a><small>Added <%= fdate(d.uploaded_at.slice(0, 10)) %></small></li>
+      <% }) %>
+    </ul>
+  </section>
+  <% } %>
+
+  <% if (rows.contacts.length) { %>
   <section class="card" id="team">
-    <h2>Your team</h2>
+    <h2>Everyone on your sale</h2>
     <ul class="team">
-      <% if (agent) { %>
-      <li><small>Your listing agent</small><strong><%= agent.name %></strong>
-        <span class="links"><% if (agent.phone) { %><a href="tel:<%= agent.phone.replace(/[^\d+]/g, '') %>"><%= agent.phone %></a><% } %>
-        <a href="mailto:<%= agent.email %>"><%= agent.email %></a></span></li>
-      <% } %>
       <% rows.contacts.forEach(function (c) { %>
       <li><small><%= c.role %></small><strong><%= c.name %></strong><% if (c.company) { %><span class="muted"><%= c.company %></span><% } %>
         <span class="links"><% if (c.phone) { %><a href="tel:<%= c.phone.replace(/[^\d+]/g, '') %>"><%= c.phone %></a><% } %>
@@ -183,8 +213,21 @@
       <% }) %>
     </ul>
   </section>
+  <% } %>
 
+  <% if (hasVendors) { %><p><a class="btn ghost full" href="/vendors">Trusted pros I recommend →</a></p><% } %>
   <% if (p.listing_url) { %><p><a class="btn ghost full" href="<%= p.listing_url %>" target="_blank" rel="noopener noreferrer">View your listing online →</a></p><% } %>
 </aside>
 </div>
+<% if (user.role !== 'agent') { %>
+<div id="chat" class="chat floating" data-url="/p/<%= p.id %>/messages">
+  <button type="button" class="chatbtn" data-chat-open aria-expanded="false">Chat with <%= agent ? agent.name.split(' ')[0] : 'your agent' %><% if (unread) { %><b class="badge"><%= unread %></b><% } %></button>
+  <div class="chatpanel" hidden>
+    <header><strong>Chat with <%= agent ? agent.name.split(' ')[0] : 'your agent' %></strong><button type="button" class="link" data-chat-close aria-label="Close chat">Close</button></header>
+    <div class="chatlist" aria-live="polite"><p class="empty muted">Ask a question any time. Your agent will reply here.</p></div>
+    <form><textarea name="body" rows="2" maxlength="2000" placeholder="Write a message…" required aria-label="Message"></textarea><button class="btn">Send</button></form>
+  </div>
+</div>
+<script src="/chat.js"></script>
+<% } %>
 <%- include('partials/foot') %>

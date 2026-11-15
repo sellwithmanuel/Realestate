@@ -1,0 +1,24 @@
+<%- include('partials/head', { title: 'Trusted pros' }) %>
+<% if (user.role !== 'agent') { %><p><a href="<%= back %>">← Back to my home</a></p><% } %>
+<h1>Trusted pros</h1>
+<p class="muted">People <%= agent ? agent.name.split(' ')[0] : 'your agent' %> knows and recommends. Mention the referral when you call.</p>
+<% if (!vendors.length) { %><section class="card"><p class="muted">No recommendations have been added yet.</p></section><% } %>
+<% var cats = []; vendors.forEach(function (v) { if (cats.indexOf(v.category) < 0) cats.push(v.category); }); %>
+<% cats.forEach(function (cat) { %>
+<h2 class="sect"><%= cat %></h2>
+<div class="grid2">
+  <% vendors.filter(function (v) { return v.category === cat; }).forEach(function (v) { %>
+  <section class="card vendor">
+    <strong><%= v.name %></strong>
+    <% if (v.company) { %><span class="muted"><%= v.company %></span><% } %>
+    <span class="links">
+      <% if (v.phone) { %><a href="tel:<%= v.phone.replace(/[^\d+]/g, '') %>"><%= v.phone %></a><% } %>
+      <% if (v.email) { %><a href="mailto:<%= v.email %>"><%= v.email %></a><% } %>
+      <% if (v.website) { %><a href="<%= v.website %>" target="_blank" rel="noopener noreferrer">Website</a><% } %>
+    </span>
+    <% if (v.notes) { %><p class="note"><%= v.notes %></p><% } %>
+  </section>
+  <% }) %>
+</div>
+<% }) %>
+<%- include('partials/foot') %>

@@ -90,6 +90,42 @@ CREATE TABLE IF NOT EXISTS updates (
 );
 `);
 
+db.exec(`
+CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS vendors (
+  id INTEGER PRIMARY KEY,
+  category TEXT, name TEXT NOT NULL, company TEXT, phone TEXT, email TEXT, website TEXT, notes TEXT
+);
+CREATE TABLE IF NOT EXISTS documents (
+  id INTEGER PRIMARY KEY,
+  property_id INTEGER NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  title TEXT NOT NULL, filename TEXT NOT NULL, original_name TEXT NOT NULL, size INTEGER,
+  uploaded_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS messages (
+  id INTEGER PRIMARY KEY,
+  property_id INTEGER NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS message_reads (
+  property_id INTEGER NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  last_id INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (property_id, user_id)
+);
+`);
+// Columns added after the first release.
+if (!db.prepare("SELECT 1 FROM pragma_table_info('properties') WHERE name = 'value_url'").get()) {
+  db.exec('ALTER TABLE properties ADD COLUMN value_url TEXT');
+}
+
+const brandDir = path.join(dir, 'uploads', 'brand');
+const docsDir = path.join(dir, 'uploads', 'docs');
+fs.mkdirSync(brandDir, { recursive: true });
+fs.mkdirSync(docsDir, { recursive: true });
+
 function hashPassword(password) {
   const salt = crypto.randomBytes(16);
   const hash = crypto.scryptSync(password, salt, 64);
@@ -118,4 +154,4 @@ const createProperty = db.transaction((address, city) => {
   return id;
 });
 
-module.exports = { db, hashPassword, verifyPassword, createUser, createProperty };
+module.exports = { db, brandDir, docsDir, hashPassword, verifyPassword, createUser, createProperty };

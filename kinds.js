@@ -75,7 +75,18 @@ const PROPERTY_FIELDS = [
   { name: 'escrow_opened', label: 'Escrow opened', type: 'date' },
   { name: 'closing_date', label: 'Closing date', type: 'date' },
   { name: 'sale_price', label: 'Accepted / sale price', type: 'money' },
+  { name: 'value_url', label: 'Home value report link (paste the client’s HomeIQ report link)', type: 'url', wide: true },
   { name: 'headline', label: 'Status note shown at the top of the client page', type: 'textarea', wide: true },
+];
+
+const VENDOR_FIELDS = [
+  { name: 'category', label: 'Type of service', type: 'text', required: true, list: ['Gardener / Landscaper', 'Electrician', 'Plumber', 'Roofer', 'Painter', 'Handyman', 'Heating & Air', 'House Cleaner', 'Mover', 'Pest Control', 'General Contractor', 'Flooring', 'Pool Service'] },
+  { name: 'name', label: 'Name', type: 'text', required: true },
+  { name: 'company', label: 'Company', type: 'text' },
+  { name: 'phone', label: 'Phone', type: 'tel' },
+  { name: 'email', label: 'Email', type: 'email' },
+  { name: 'website', label: 'Website', type: 'url' },
+  { name: 'notes', label: 'Why you recommend them', type: 'textarea', wide: true },
 ];
 
 const KINDS = {
@@ -170,4 +181,4 @@ const KINDS = {
   },
 };
 
-module.exports = { STAGES, PHASES, STATUSES, PAID_BY, DEFAULT_MILESTONES, PROPERTY_FIELDS, KINDS, label };
+module.exports = { STAGES, PHASES, STATUSES, PAID_BY, DEFAULT_MILESTONES, PROPERTY_FIELDS, VENDOR_FIELDS, KINDS, label };

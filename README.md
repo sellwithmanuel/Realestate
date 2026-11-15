@@ -12,6 +12,14 @@ A private portal where each seller signs in and sees exactly where their home sa
 - Who pays for what (termite report, inspection, title insurance, appraisal, …)
 - Contact details for everyone involved (agent, transaction coordinator, escrow, title, …)
 - Updates posted by the agent
+- The agent's photo, contact info and bio, with a built-in chat to message the agent
+- Documents the agent uploads (contracts, reports, closing statement), available after the sale too
+- A button to their home value report (a HomeIQ or similar link pasted in by the agent)
+- "Trusted pros": the agent's recommended gardeners, electricians, roofers, painters, …
+
+## Branding
+
+Under **Branding** the agent sets the main and accent colors, uploads a logo and headshot, and fills in contact info and an "about me". It applies to the whole portal immediately.
 
 ## How logins work
 
@@ -37,11 +45,11 @@ npm start          # http://localhost:3000
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `PORT` | Port to listen on | `3000` |
-| `DATA_DIR` | Folder that holds the database file `portal.db` | `./data` |
+| `DATA_DIR` | Folder that holds the database and uploaded files | `./data` |
 | `BRAND_NAME` | Name shown in the header | `Sell With Manuel` |
 | `TIME_ZONE` | Time zone used for "today" | `America/Los_Angeles` |
 | `NODE_ENV` | Set to `production` when hosted (login cookie then requires HTTPS) | |
 
 ## Hosting
 
-Any host that runs Node 20+ and offers a persistent disk works. All data lives in one SQLite file in `DATA_DIR`, so that folder **must** be on a persistent disk and should be backed up. `render.yaml` is a ready-made setup for Render.
+Any host that runs Node 20+ and offers a persistent disk works. All data (the SQLite file `portal.db` plus uploaded documents and images in `uploads/`) lives in `DATA_DIR`, so that folder **must** be on a persistent disk and should be backed up. `render.yaml` is a ready-made setup for Render.

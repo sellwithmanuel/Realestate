@@ -5,7 +5,8 @@
   <div class="list">
   <% props.forEach(function (p) { %>
     <a class="listrow" href="/admin/p/<%= p.id %>">
-      <span><strong><%= p.address %></strong><small><%= p.clients || 'No client login linked yet' %></small></span>
+      <span><strong><%= p.address %></strong><small><%= p.clients || 'No client login linked yet' %></small>
+        <% if (p.unread) { %><small class="newmsg"><%= p.unread %> new message<%= p.unread === 1 ? '' : 's' %></small><% } %></span>
       <span class="right"><span class="pill"><%= label(STAGES, p.stage) %></span><small><%= p.done %> of <%= p.total %> milestones</small></span>
     </a>
   <% }) %>

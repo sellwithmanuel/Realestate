@@ -1,0 +1,31 @@
+<%- include('../partials/head', { title: 'Branding' }) %>
+<h1>Branding & your profile</h1>
+<p class="muted">This is how the portal looks to your clients. Changes apply everywhere as soon as you save.</p>
+<form method="post" action="/admin/settings" enctype="multipart/form-data">
+<section class="card">
+  <h2>Look</h2>
+  <div class="fields">
+    <label class="wide"><span>Business name (shown in the header when there is no logo)</span><input name="brand_name" value="<%= site.brand_name || brand %>" maxlength="80"></label>
+    <label><span>Main color (header banner, buttons, links)</span><input type="color" name="color_primary" value="<%= theme.primary || '#1d4f45' %>"></label>
+    <label><span>Accent color (small labels and highlights)</span><input type="color" name="color_accent" value="<%= theme.accent || '#b0843a' %>"></label>
+    <label><span>Logo (PNG or JPG, wide format works best)</span><input type="file" name="logo" accept=".png,.jpg,.jpeg,.webp,.gif">
+      <% if (site.logo) { %><span class="current"><img src="/brand/<%= site.logo %>" alt="Current logo"><span class="checkline"><input type="checkbox" name="remove_logo" value="1"> Remove logo</span></span><% } %></label>
+    <label><span>Your headshot (square photo works best)</span><input type="file" name="headshot" accept=".png,.jpg,.jpeg,.webp,.gif">
+      <% if (site.headshot) { %><span class="current"><img class="round" src="/brand/<%= site.headshot %>" alt="Current headshot"><span class="checkline"><input type="checkbox" name="remove_headshot" value="1"> Remove photo</span></span><% } %></label>
+  </div>
+</section>
+<section class="card">
+  <h2>Your contact info</h2>
+  <div class="fields">
+    <label><span>Your name *</span><input name="name" value="<%= user.name %>" required></label>
+    <label><span>Phone</span><input type="tel" name="phone" value="<%= user.phone || '' %>"></label>
+    <label><span>Title / brokerage</span><input name="title" value="<%= site.title || '' %>" placeholder="e.g. Realtor® · Your Brokerage"></label>
+    <label><span>License #</span><input name="license" value="<%= site.license || '' %>" placeholder="e.g. DRE 01234567"></label>
+    <label class="wide"><span>Website</span><input type="url" name="website" value="<%= site.website || '' %>" placeholder="https://"></label>
+    <label class="wide"><span>A little about you</span><textarea name="about" rows="5" maxlength="3000"><%= site.about || '' %></textarea></label>
+  </div>
+  <p class="muted small">Clients see your login email (<%= user.email %>) as your contact email.</p>
+</section>
+<button class="btn">Save branding</button>
+</form>
+<%- include('../partials/foot') %>

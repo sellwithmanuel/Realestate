@@ -1,8 +1,10 @@
 const path = require('path');
 const crypto = require('crypto');
+const fs = require('fs');
 const express = require('express');
-const { db, hashPassword, verifyPassword, createUser, createProperty } = require('./db');
-const { STAGES, PHASES, STATUSES, PROPERTY_FIELDS, KINDS, label } = require('./kinds');
+const multer = require('multer');
+const { db, brandDir, docsDir, hashPassword, verifyPassword, createUser, createProperty } = require('./db');
+const { STAGES, PHASES, STATUSES, PROPERTY_FIELDS, VENDOR_FIELDS, KINDS, label } = require('./kinds');
 
 const app = express();
 const PROD = process.env.NODE_ENV === 'production';
@@ -15,7 +17,45 @@ app.set('views', path.join(__dirname, 'views'));
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: PROD ? '1h' : 0 }));
+app.use('/brand', express.static(brandDir, { maxAge: '1h' }));
 app.use(express.urlencoded({ extended: false, limit: '200kb' }));
+
+// ---------- site settings (branding) & uploads ----------
+const getSettings = () => Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map((r) => [r.key, r.value]));
+const setSetting = (key, value) =>
+  db.prepare('INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value || null);
+const validColor = (c) => (/^#[0-9a-f]{6}$/i.test(c || '') ? c : null);
+// Dark or white text, whichever reads better on the given background color.
+function inkFor(hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => {
+    const v = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.4 ? '#1c2a2e' : '#ffffff';
+}
+
+const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif']);
+const DOC_EXT = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.heic', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.txt']);
+const INLINE_EXT = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.gif']);
+const MAX_DOC_MB = 25;
+const extOf = (name) => path.extname(name || '').toLowerCase();
+const uploader = (dir, exts, maxMB) =>
+  multer({
+    storage: multer.diskStorage({
+      destination: dir,
+      filename: (req, file, cb) => cb(null, crypto.randomBytes(16).toString('hex') + extOf(file.originalname)),
+    }),
+    limits: { fileSize: maxMB * 1048576, files: 10 },
+    fileFilter: (req, file, cb) => cb(null, exts.has(extOf(file.originalname))),
+  });
+// Runs an upload and, if it fails, sends the agent back with a readable message.
+const withUpload = (mw, back) => (req, res, next) =>
+  mw(req, res, (err) => {
+    if (!err) return next();
+    flash(req, err.code === 'LIMIT_FILE_SIZE' ? 'That file is too large.' : 'The upload did not work. Please try again.');
+    res.redirect(back(req));
+  });
+const removeFile = (dir, name) => { if (name) fs.rm(path.join(dir, path.basename(name)), { force: true }, () => {}); };
 
 // ---------- formatting helpers (also available in every view) ----------
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE }).format(new Date());
@@ -80,7 +120,13 @@ app.use((req, res, next) => {
       }
     }
   }
-  Object.assign(res.locals, helpers, { user: req.user, brand: BRAND, today: today(), error: null, STAGES, PHASES, STATUSES });
+  const site = getSettings();
+  const primary = validColor(site.color_primary), accent = validColor(site.color_accent);
+  Object.assign(res.locals, helpers, {
+    user: req.user, site, brand: site.brand_name || BRAND, today: today(), error: null, STAGES, PHASES, STATUSES,
+    theme: { primary, accent, ink: primary ? inkFor(primary) : null },
+    hasVendors: !!req.user && !!db.prepare('SELECT 1 FROM vendors').get(),
+  });
   next();
 });
 
@@ -172,13 +218,6 @@ app.post('/account', requireUser, (req, res) => {
   const current = String(req.body.current || '');
   const next = String(req.body.password || '');
   const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
-  if (req.user.role === 'agent') {
-    const name = String(req.body.name || '').trim();
-    if (name) {
-      db.prepare('UPDATE users SET name = ?, phone = ? WHERE id = ?').run(name, String(req.body.phone || '').trim(), req.user.id);
-      Object.assign(res.locals.user, { name, phone: String(req.body.phone || '').trim() });
-    }
-  }
   if (next) {
     if (!verifyPassword(current, row.password_hash)) return res.status(400).render('account', { error: 'Your current password is not correct.' });
     if (next.length < 8) return res.status(400).render('account', { error: 'Choose a new password with at least 8 characters.' });
@@ -186,7 +225,7 @@ app.post('/account', requireUser, (req, res) => {
     // Sign out every other device.
     db.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?').run(req.user.id, req.sessionKey);
   }
-  flash(req, 'Saved.');
+  flash(req, next ? 'Your password has been changed.' : 'Nothing was changed.');
   res.redirect('/account');
 });
 
@@ -200,11 +239,23 @@ app.get('/portal', requireUser, (req, res) => {
   res.render('portal', { props });
 });
 
-app.get('/p/:id', requireUser, (req, res) => {
+// The sale in the URL, but only if this person is allowed to see it.
+function accessibleProperty(req) {
   const p = db.prepare('SELECT * FROM properties WHERE id = ?').get(req.params.id);
   const allowed =
     p && (req.user.role === 'agent' || db.prepare('SELECT 1 FROM property_clients WHERE property_id = ? AND user_id = ?').get(p.id, req.user.id));
-  if (!allowed) return res.status(404).render('message', { title: 'Not found', message: 'We could not find that page.' });
+  return allowed ? p : null;
+}
+const unreadCount = (propertyId, userId) =>
+  db.prepare(
+    `SELECT count(*) AS n FROM messages WHERE property_id = ? AND user_id != ?
+     AND id > coalesce((SELECT last_id FROM message_reads WHERE property_id = ? AND user_id = ?), 0)`
+  ).get(propertyId, userId, propertyId, userId).n;
+const listDocuments = (propertyId) => db.prepare('SELECT * FROM documents WHERE property_id = ? ORDER BY id DESC').all(propertyId);
+
+app.get('/p/:id', requireUser, (req, res) => {
+  const p = accessibleProperty(req);
+  if (!p) return res.status(404).render('message', { title: 'Not found', message: 'We could not find that page.' });
 
   const rows = {};
   for (const [kind, def] of Object.entries(KINDS)) {
@@ -228,7 +279,55 @@ app.get('/p/:id', requireUser, (req, res) => {
     nextUp: rows.milestones.filter((m) => m.status !== 'done').slice(0, 3),
     agent: db.prepare("SELECT name, email, phone FROM users WHERE role = 'agent' ORDER BY id LIMIT 1").get(),
     stageIndex: Math.max(0, STAGES.findIndex((s) => s[0] === p.stage)),
+    documents: listDocuments(p.id),
+    unread: unreadCount(p.id, req.user.id),
   });
+});
+
+// Documents: only people with access to the sale can open them.
+app.get('/p/:id/docs/:docId', requireUser, (req, res) => {
+  const p = accessibleProperty(req);
+  const d = p && db.prepare('SELECT * FROM documents WHERE id = ? AND property_id = ?').get(req.params.docId, p.id);
+  if (!d) return res.status(404).render('message', { title: 'Not found', message: 'We could not find that document.' });
+  const ext = extOf(d.filename);
+  res.type(ext || 'application/octet-stream');
+  res.set('Content-Disposition', `${INLINE_EXT.has(ext) ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(d.original_name)}`);
+  res.sendFile(path.join(docsDir, path.basename(d.filename)));
+});
+
+// Chat: one conversation per sale between the agent and the clients on it.
+app.get('/p/:id/messages', requireUser, (req, res) => {
+  const p = accessibleProperty(req);
+  if (!p) return res.status(404).json({ error: 'not found' });
+  const after = Number(req.query.after) || 0;
+  const messages = db
+    .prepare(
+      `SELECT m.id, m.body, m.created_at, m.user_id, u.name FROM messages m JOIN users u ON u.id = m.user_id
+       WHERE m.property_id = ? AND m.id > ? ORDER BY m.id`
+    )
+    .all(p.id, after)
+    .map((m) => ({ id: m.id, body: m.body, name: m.name, mine: m.user_id === req.user.id, at: m.created_at.replace(' ', 'T') + 'Z' }));
+  const newest = db.prepare('SELECT coalesce(max(id), 0) AS id FROM messages WHERE property_id = ?').get(p.id).id;
+  db.prepare(
+    'INSERT INTO message_reads (property_id, user_id, last_id) VALUES (?,?,?) ON CONFLICT(property_id, user_id) DO UPDATE SET last_id = excluded.last_id'
+  ).run(p.id, req.user.id, newest);
+  res.json({ messages });
+});
+
+app.post('/p/:id/messages', requireUser, (req, res) => {
+  const p = accessibleProperty(req);
+  if (!p) return res.status(404).json({ error: 'not found' });
+  const body = String(req.body.body || '').trim().slice(0, 2000);
+  if (!body) return res.status(400).json({ error: 'empty' });
+  db.prepare('INSERT INTO messages (property_id, user_id, body) VALUES (?,?,?)').run(p.id, req.user.id, body);
+  res.json({ ok: true });
+});
+
+// Trusted pros, visible to every signed-in client.
+const listVendors = () => db.prepare('SELECT * FROM vendors ORDER BY category COLLATE NOCASE, name COLLATE NOCASE').all();
+app.get('/vendors', requireUser, (req, res) => {
+  const home = db.prepare('SELECT property_id AS id FROM property_clients WHERE user_id = ? LIMIT 1').get(req.user.id);
+  res.render('vendors', { vendors: listVendors(), agent: db.prepare("SELECT name FROM users WHERE role = 'agent' ORDER BY id LIMIT 1").get(), back: home ? `/p/${home.id}` : '/' });
 });
 
 // ---------- agent admin ----------
@@ -238,10 +337,12 @@ app.get('/admin', requireAgent, (req, res) => {
       `SELECT p.*,
         (SELECT group_concat(u.name, ', ') FROM property_clients pc JOIN users u ON u.id = pc.user_id WHERE pc.property_id = p.id) AS clients,
         (SELECT count(*) FROM milestones m WHERE m.property_id = p.id AND m.status = 'done') AS done,
-        (SELECT count(*) FROM milestones m WHERE m.property_id = p.id) AS total
+        (SELECT count(*) FROM milestones m WHERE m.property_id = p.id) AS total,
+        (SELECT count(*) FROM messages g WHERE g.property_id = p.id AND g.user_id != @me
+           AND g.id > coalesce((SELECT last_id FROM message_reads r WHERE r.property_id = p.id AND r.user_id = @me), 0)) AS unread
        FROM properties p ORDER BY (p.stage = 'closed'), p.id DESC`
     )
-    .all();
+    .all({ me: req.user.id });
   const clients = db
     .prepare(
       `SELECT u.id, u.name, u.email,
@@ -303,7 +404,7 @@ app.get('/admin/p/:pid', requireAgent, loadProperty, (req, res) => {
   const others = db
     .prepare("SELECT id, name, email FROM users WHERE role = 'client' AND id NOT IN (SELECT user_id FROM property_clients WHERE property_id = ?) ORDER BY name")
     .all(p.id);
-  res.render('admin/property', { p, rows, linked, others, KINDS, PROPERTY_FIELDS, helpers });
+  res.render('admin/property', { p, rows, linked, others, KINDS, PROPERTY_FIELDS, helpers, documents: listDocuments(p.id), maxDocMB: MAX_DOC_MB });
 });
 
 app.post('/admin/p/:pid', requireAgent, loadProperty, (req, res) => {
@@ -316,6 +417,7 @@ app.post('/admin/p/:pid', requireAgent, loadProperty, (req, res) => {
 });
 
 app.post('/admin/p/:pid/delete', requireAgent, loadProperty, (req, res) => {
+  listDocuments(req.property.id).forEach((d) => removeFile(docsDir, d.filename));
   db.prepare('DELETE FROM properties WHERE id = ?').run(req.property.id);
   flash(req, `Deleted ${req.property.address}.`);
   res.redirect('/admin');
@@ -358,6 +460,32 @@ app.post('/admin/p/:pid/milestones/:id/toggle', requireAgent, loadProperty, (req
   res.redirect(`/admin/p/${req.property.id}#m${req.params.id}`);
 });
 
+// Documents for the client (contracts, reports, closing statement, ...).
+app.post(
+  '/admin/p/:pid/documents', requireAgent, loadProperty,
+  withUpload(uploader(docsDir, DOC_EXT, MAX_DOC_MB).array('files', 10), (req) => `/admin/p/${req.params.pid}#documents`),
+  (req, res) => {
+    const files = req.files || [];
+    const title = String(req.body.title || '').trim().slice(0, 200);
+    const ins = db.prepare('INSERT INTO documents (property_id, title, filename, original_name, size) VALUES (?,?,?,?,?)');
+    for (const f of files) {
+      const original = Buffer.from(f.originalname, 'latin1').toString('utf8');
+      ins.run(req.property.id, files.length === 1 && title ? title : path.parse(original).name, f.filename, original, f.size);
+    }
+    flash(req, files.length ? `${files.length} document${files.length === 1 ? '' : 's'} uploaded.` : 'Nothing was uploaded. Use PDF, image, Word or Excel files.');
+    res.redirect(`/admin/p/${req.property.id}#documents`);
+  }
+);
+
+app.post('/admin/p/:pid/documents/:id/delete', requireAgent, loadProperty, (req, res) => {
+  const d = db.prepare('SELECT * FROM documents WHERE id = ? AND property_id = ?').get(req.params.id, req.property.id);
+  if (d) {
+    db.prepare('DELETE FROM documents WHERE id = ?').run(d.id);
+    removeFile(docsDir, d.filename);
+  }
+  res.redirect(`/admin/p/${req.property.id}#documents`);
+});
+
 // Generic add / edit / delete for everything that hangs off a sale.
 function loadKind(req, res, next) {
   req.kind = Object.hasOwn(KINDS, req.params.kind) ? KINDS[req.params.kind] : null;
@@ -397,6 +525,64 @@ app.post('/admin/p/:pid/:kind/:id/delete', requireAgent, loadProperty, loadKind,
   db.prepare(`DELETE FROM ${req.kind.table} WHERE id = ? AND property_id = ?`).run(req.params.id, req.property.id);
   res.redirect(`/admin/p/${req.property.id}#${req.params.kind}`);
 });
+
+// Trusted pros
+app.get('/admin/vendors', requireAgent, (req, res) => res.render('admin/vendors', { vendors: listVendors(), VENDOR_FIELDS }));
+
+app.post('/admin/vendors', requireAgent, (req, res) => {
+  const v = readFields(VENDOR_FIELDS, req.body);
+  if (!v) flash(req, 'Please fill in the type of service and the name.');
+  else {
+    const cols = Object.keys(v);
+    db.prepare(`INSERT INTO vendors (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map((c) => v[c]));
+  }
+  res.redirect('/admin/vendors');
+});
+
+app.post('/admin/vendors/:id', requireAgent, (req, res) => {
+  const v = readFields(VENDOR_FIELDS, req.body);
+  if (!v) flash(req, 'Please fill in the type of service and the name.');
+  else {
+    const cols = Object.keys(v);
+    db.prepare(`UPDATE vendors SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`).run(...cols.map((c) => v[c]), req.params.id);
+  }
+  res.redirect('/admin/vendors');
+});
+
+app.post('/admin/vendors/:id/delete', requireAgent, (req, res) => {
+  db.prepare('DELETE FROM vendors WHERE id = ?').run(req.params.id);
+  res.redirect('/admin/vendors');
+});
+
+// Branding & agent profile
+app.get('/admin/settings', requireAgent, (req, res) => res.render('admin/settings'));
+
+app.post(
+  '/admin/settings', requireAgent,
+  withUpload(uploader(brandDir, IMAGE_EXT, 5).fields([{ name: 'logo', maxCount: 1 }, { name: 'headshot', maxCount: 1 }]), () => '/admin/settings'),
+  (req, res) => {
+    const b = req.body, old = getSettings();
+    const text = (k, max) => String(b[k] || '').trim().slice(0, max);
+    setSetting('brand_name', text('brand_name', 80));
+    setSetting('color_primary', validColor(b.color_primary));
+    setSetting('color_accent', validColor(b.color_accent));
+    setSetting('title', text('title', 120));
+    setSetting('license', text('license', 60));
+    setSetting('website', /^https?:\/\//i.test(text('website', 300)) ? text('website', 300) : '');
+    setSetting('about', text('about', 3000));
+    for (const key of ['logo', 'headshot']) {
+      const file = req.files && req.files[key] && req.files[key][0];
+      if (file || b[`remove_${key}`]) {
+        removeFile(brandDir, old[key]);
+        setSetting(key, file ? file.filename : '');
+      }
+    }
+    const name = text('name', 120);
+    if (name) db.prepare('UPDATE users SET name = ?, phone = ? WHERE id = ?').run(name, text('phone', 40), req.user.id);
+    flash(req, 'Branding saved.');
+    res.redirect('/admin/settings');
+  }
+);
 
 // Client logins
 app.get('/admin/clients/:uid', requireAgent, (req, res) => {

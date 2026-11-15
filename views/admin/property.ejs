@@ -5,7 +5,7 @@
   <a class="btn ghost" href="/p/<%= p.id %>">View what the client sees →</a>
 </div>
 <nav class="jump">
-  <a href="#details">Details</a><a href="#access">Client access</a>
+  <a href="#details">Details</a><a href="#access">Client access</a><a href="#messages">Messages</a><a href="#documents">Documents</a>
   <% Object.keys(KINDS).forEach(function (k) { %><a href="#<%= k %>"><%= KINDS[k].title %></a><% }) %>
 </nav>
 
@@ -58,6 +58,37 @@
   <% } %>
 </section>
 
+<section class="card" id="messages">
+  <h2>Messages with your client</h2>
+  <div id="chat" class="chat embedded" data-url="/p/<%= p.id %>/messages" data-open>
+    <div class="chatlist" aria-live="polite"><p class="empty muted">No messages yet.</p></div>
+    <form><textarea name="body" rows="2" maxlength="2000" placeholder="Write a message…" required aria-label="Message"></textarea><button class="btn">Send</button></form>
+  </div>
+</section>
+
+<section class="card" id="documents">
+  <h2>Documents</h2>
+  <p class="muted">Contracts, disclosures, reports, the closing statement — your client can open these any time, including after the sale.</p>
+  <div class="list">
+  <% documents.forEach(function (d) { %>
+    <div class="listrow">
+      <span><a href="/p/<%= p.id %>/docs/<%= d.id %>" target="_blank" rel="noopener"><strong><%= d.title %></strong></a><small><%= d.original_name %> · added <%= fdate(d.uploaded_at.slice(0, 10)) %></small></span>
+      <form method="post" action="/admin/p/<%= p.id %>/documents/<%= d.id %>/delete" onsubmit="return confirm('Delete this document?')"><button class="link danger">Delete</button></form>
+    </div>
+  <% }) %>
+  </div>
+  <details class="add" <%= documents.length ? '' : 'open' %>>
+    <summary>+ Upload documents</summary>
+    <form method="post" action="/admin/p/<%= p.id %>/documents" enctype="multipart/form-data">
+      <div class="fields">
+        <label class="wide"><span>Files * (PDF, images, Word or Excel — up to <%= maxDocMB %> MB each, 10 at a time)</span><input type="file" name="files" multiple required accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.heic,.doc,.docx,.xls,.xlsx,.csv,.txt"></label>
+        <label class="wide"><span>Name shown to the client (optional, when uploading one file)</span><input name="title" placeholder="e.g. Final closing statement"></label>
+      </div>
+      <button class="btn">Upload</button>
+    </form>
+  </details>
+</section>
+
 <% Object.keys(KINDS).forEach(function (kind) { var def = KINDS[kind]; %>
 <section class="card" id="<%= kind %>">
   <h2><%= def.title %></h2>
@@ -92,4 +123,5 @@
 <form method="post" action="/admin/p/<%= p.id %>/delete" onsubmit="return confirm('Delete this entire sale and everything in it? This cannot be undone.')">
   <button class="link danger">Delete this sale</button>
 </form>
+<script src="/chat.js"></script>
 <%- include('../partials/foot') %>

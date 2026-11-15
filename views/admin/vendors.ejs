@@ -1,0 +1,28 @@
+<%- include('../partials/head', { title: 'Trusted pros' }) %>
+<div class="adminhead">
+  <div><h1>Trusted pros</h1><p class="muted">Gardeners, electricians, roofers, painters… Every client sees this list in their portal.</p></div>
+  <a class="btn ghost" href="/vendors">View what clients see →</a>
+</div>
+<section class="card">
+  <% if (!vendors.length) { %><p class="muted">No one added yet.</p><% } %>
+  <% vendors.forEach(function (v) { %>
+  <div class="editrow">
+    <details>
+      <summary><%= v.category %> — <%= v.name %><%= v.company ? ', ' + v.company : '' %></summary>
+      <form method="post" action="/admin/vendors/<%= v.id %>">
+        <%- include('../partials/fields', { def: { fields: VENDOR_FIELDS }, r: v }) %>
+        <button class="btn">Save</button>
+        <button class="link danger" formaction="/admin/vendors/<%= v.id %>/delete" formnovalidate onclick="return confirm('Remove this recommendation?')">Delete</button>
+      </form>
+    </details>
+  </div>
+  <% }) %>
+  <details class="add" <%= vendors.length ? '' : 'open' %>>
+    <summary>+ Add a recommendation</summary>
+    <form method="post" action="/admin/vendors">
+      <%- include('../partials/fields', { def: { fields: VENDOR_FIELDS }, r: {} }) %>
+      <button class="btn">Add</button>
+    </form>
+  </details>
+</section>
+<%- include('../partials/foot') %>

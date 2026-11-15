@@ -3,14 +3,11 @@
   <h1>Your account</h1>
   <p class="muted">Signed in as <%= user.email %></p>
   <form method="post" action="/account" class="stack">
-    <% if (user.role === 'agent') { %>
-    <label><span>Name</span><input name="name" value="<%= user.name %>" required></label>
-    <label><span>Phone (shown to clients)</span><input type="tel" name="phone" value="<%= user.phone || '' %>"></label>
-    <% } %>
     <h2>Change password</h2>
-    <label><span>Current password</span><input type="password" name="current" autocomplete="current-password" <%= user.role === 'client' ? 'required' : '' %>></label>
-    <label><span>New password (8+ characters)</span><input type="password" name="password" minlength="8" autocomplete="new-password" <%= user.role === 'client' ? 'required' : '' %>></label>
-    <button class="btn">Save</button>
+    <label><span>Current password</span><input type="password" name="current" autocomplete="current-password" required></label>
+    <label><span>New password (8+ characters)</span><input type="password" name="password" minlength="8" autocomplete="new-password" required></label>
+    <button class="btn">Change password</button>
   </form>
+  <% if (user.role === 'agent') { %><p class="muted small">Your name, phone, photo and colors are under <a href="/admin/settings">Branding</a>.</p><% } %>
 </section>
 <%- include('partials/foot') %>

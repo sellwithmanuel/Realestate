@@ -78,4 +78,10 @@ up.run(pid, day(-1), 'Home inspection is confirmed. The inspector will need abou
 up.run(pid, day(-4), "The buyer's deposit has been received by escrow.");
 up.run(pid, day(-7), 'Congratulations — offer accepted and escrow is open!');
 
+const vd = db.prepare('INSERT INTO vendors (category, name, company, phone, notes) VALUES (?,?,?,?,?)');
+vd.run('Electrician', 'Alex Example', 'Sample Electric', '(555) 010-2010', 'Fast, fair and always on time.');
+vd.run('Gardener / Landscaper', 'Sam Example', 'Sample Gardens', '(555) 010-2011', null);
+vd.run('Painter', 'Jamie Example', 'Sample Painting', '(555) 010-2012', 'Painted three of my listings this year.');
+db.prepare('UPDATE properties SET value_url = ? WHERE id = ?').run('https://example.com/home-value-report', pid);
+
 console.log('Demo data created.\n  Agent:  agent@example.com / demo-agent-123\n  Client: client@example.com / demo-client-123');
