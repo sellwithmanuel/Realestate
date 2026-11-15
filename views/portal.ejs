@@ -8,7 +8,7 @@
   <a class="card proplink" href="/p/<%= p.id %>">
     <span class="pill"><%= label(STAGES, p.stage) %></span>
     <h2><%= p.address %></h2>
-    <p class="muted"><%= p.city %></p>
+    <p class="muted"><%= fullCity(p) %></p>
   </a>
 <% }) %>
 </div>

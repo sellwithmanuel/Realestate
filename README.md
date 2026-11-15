@@ -21,6 +21,14 @@ A private portal where each seller signs in and sees exactly where their home sa
 
 Under **Branding** the agent sets the main and accent colors, uploads a logo and headshot, and fills in contact info and an "about me". It applies to the whole portal immediately.
 
+## What the agent sees
+
+- **Dashboard:** current listings, active buyers, deals in escrow, commission pending and earned this year
+- **Sellers and buyers kept separate**, each split into current and past deals and grouped by ZIP code
+- For every deal: client contact info, price, the agent's commission, escrow opened / closed dates, days in escrow and days since closing
+- **Follow-ups:** a reminder 30 days, 90 days and 12 months after closing, then every year on the anniversary (homeversary and home valuation update). Reminders show on the dashboard and, when email is set up, are emailed on the day they come due
+- Commission = price × commission % (less any referral fee) × the agent's split, less fees. Defaults are set under **Settings** and can be overridden per deal. Clients never see it
+
 ## How logins work
 
 1. The first time the site is opened it asks you (the agent) to create your own login.

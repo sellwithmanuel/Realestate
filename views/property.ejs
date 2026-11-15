@@ -6,7 +6,7 @@
 <section class="hero">
   <span class="pill light"><%= label(STAGES, p.stage) %></span>
   <h1><%= p.address %></h1>
-  <p class="sub"><%= p.city %><% if (p.mls_number) { %> · MLS #<%= p.mls_number %><% } %></p>
+  <p class="sub"><%= fullCity(p) %><% if (p.mls_number) { %> · MLS #<%= p.mls_number %><% } %></p>
   <% if (p.headline) { %><p class="headline"><%= p.headline %></p><% } %>
   <ol class="stages" aria-label="Sale progress">
     <% STAGES.forEach(function (s, i) { %>
@@ -137,7 +137,7 @@
   <section class="card agentcard" id="agent">
     <div class="agenttop">
       <% if (site.headshot) { %><img src="/brand/<%= site.headshot %>" alt="<%= agent.name %>"><% } %>
-      <div><small>Your listing agent</small><strong><%= agent.name %></strong>
+      <div><small><%= p.side === 'buyer' ? 'Your agent' : 'Your listing agent' %></small><strong><%= agent.name %></strong>
         <% if (site.title) { %><span class="muted"><%= site.title %></span><% } %>
         <% if (site.license) { %><span class="muted">Lic. <%= site.license %></span><% } %></div>
     </div>
@@ -185,7 +185,7 @@
     <table class="costs">
       <% costs.forEach(function (m) { %>
       <tr><td><%= m.title %><% if (m.cost) { %> <small><%= money(m.cost) %></small><% } %></td>
-          <td><span class="tag <%= m.paid_by === 'Seller' ? 'you' : '' %>"><%= m.paid_by === 'Seller' ? 'You' : m.paid_by === 'Agent' ? 'Your agent' : m.paid_by %></span></td></tr>
+          <td><% var you = p.side === 'buyer' ? 'Buyer' : 'Seller'; %><span class="tag <%= m.paid_by === you ? 'you' : '' %>"><%= m.paid_by === you ? 'You' : m.paid_by === 'Agent' ? 'Your agent' : m.paid_by %></span></td></tr>
       <% }) %>
     </table>
   </section>

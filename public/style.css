@@ -227,3 +227,30 @@ body:has(.chat.floating) .foot { padding-bottom: 90px; }
 
 .authlogo { max-height: 44px; }
 .activity { margin: 0 0 8px; padding-left: 18px; font-size: .9rem; }
+
+/* agent dashboard */
+.fields h3.wide { margin: 14px 0 0; padding-top: 14px; border-top: 1px solid var(--line); }
+.pill.alert { background: #fbe6e2; color: var(--danger); }
+.follow { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 12px 0; border-top: 1px solid var(--line); }
+.follow > div { display: grid; gap: 3px; justify-items: start; min-width: 0; }
+.follow .muted { font-size: .88rem; }
+.follow.upcoming strong { font-weight: 600; }
+.follow form { margin: 0; }
+.tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 26px 0 6px; scroll-margin-top: 12px; }
+.tabs a { padding: 9px 18px; border-radius: 99px; border: 1px solid var(--line); background: var(--card); color: var(--ink); text-decoration: none; font-weight: 700; }
+.tabs a small { font-weight: 500; opacity: .7; margin-left: 4px; }
+.tabs a.sub { padding: 6px 13px; font-size: .85rem; font-weight: 600; }
+.tabs a.on { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+.tabs .spacer { flex: 1; }
+h3.zip { margin: 22px 0 8px; font-size: 1.05rem; }
+.deals { padding: 4px 20px; }
+.deal { display: grid; grid-template-columns: 1.4fr 1.2fr 1fr 1.1fr; gap: 8px 20px; padding: 16px 0; border-top: 1px solid var(--line); }
+.deal:first-child { border-top: 0; }
+.deal > div { display: grid; gap: 2px; align-content: start; justify-items: start; min-width: 0; font-size: .9rem; overflow-wrap: anywhere; }
+.deal small { font-size: .68rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.d-address { font-weight: 800; font-size: 1.05rem; }
+.deal .pill { margin-top: 4px; }
+.deal .newmsg { margin-left: 8px; font-size: .82rem; }
+@media (max-width: 820px) { .deal { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 480px) { .deal { grid-template-columns: 1fr; } }
+details.add.first { margin-top: 0; border-top: 0; padding-top: 0; }

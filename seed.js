@@ -15,7 +15,7 @@ const day = (offset) => {
 createUser({ name: 'Demo Agent', email: 'agent@example.com', phone: '(555) 010-2000', password: 'demo-agent-123', role: 'agent' });
 const client = createUser({ name: 'Jordan Sample', email: 'client@example.com', password: 'demo-client-123', role: 'client' });
 
-const pid = createProperty('1234 Sample Street', 'Anytown, CA 90000');
+const pid = createProperty('1234 Sample Street', 'Anytown, CA', '90001', 'seller');
 db.prepare('INSERT INTO property_clients VALUES (?,?)').run(pid, client);
 db.prepare(
   `UPDATE properties SET stage='escrow', list_price=1250000, sale_price=1285000, list_date=?, mls_number='SAMPLE123',
@@ -77,6 +77,25 @@ const up = db.prepare('INSERT INTO updates (property_id, date, message) VALUES (
 up.run(pid, day(-1), 'Home inspection is confirmed. The inspector will need about 3 hours of access.');
 up.run(pid, day(-4), "The buyer's deposit has been received by escrow.");
 up.run(pid, day(-7), 'Congratulations — offer accepted and escrow is open!');
+
+// Agent-side demo data: commission defaults, a buyer in escrow, more listings and past deals.
+const setting = db.prepare('INSERT INTO settings (key, value) VALUES (?,?)');
+setting.run('default_commission_pct', '2.5');
+setting.run('default_split_pct', '80');
+db.prepare("UPDATE properties SET client_name = 'Jordan Sample', client_phone = '(555) 010-3001', client_email = 'client@example.com' WHERE id = ?").run(pid);
+const deal = (side, address, zip, fields) => {
+  const id = createProperty(address, 'Anytown, CA', zip, side);
+  const cols = Object.keys(fields);
+  db.prepare(`UPDATE properties SET ${cols.map((c) => c + ' = ?').join(', ')} WHERE id = ?`).run(...cols.map((c) => fields[c]), id);
+  if (fields.stage === 'closed') db.prepare("UPDATE milestones SET status = 'done' WHERE property_id = ?").run(id);
+};
+deal('seller', '88 Example Avenue', '90001', { stage: 'active', list_price: 899000, list_date: day(-9), client_name: 'Avery Sample', client_phone: '(555) 010-3002', client_email: 'avery@example.com' });
+deal('seller', '5 Demo Court', '90002', { stage: 'prep', list_price: 1650000, client_name: 'Quinn Sample', client_phone: '(555) 010-3003' });
+deal('seller', '410 Placeholder Lane', '90002', { stage: 'closed', list_price: 975000, sale_price: 990000, escrow_opened: day(-62), closing_date: day(-31), client_name: 'Drew & Sky Sample', client_phone: '(555) 010-3004', client_email: 'drew@example.com' });
+deal('seller', '72 Mockingbird Way', '90001', { stage: 'closed', list_price: 1400000, sale_price: 1380000, escrow_opened: day(-392), closing_date: day(-355), client_name: 'Reese Sample', client_email: 'reese@example.com', referral_pct: 25 });
+deal('buyer', '19 Sample Hill Road', '90003', { stage: 'escrow', sale_price: 1120000, escrow_opened: day(-12), closing_date: day(18), client_name: 'Parker Sample', client_phone: '(555) 010-3005', client_email: 'parker@example.com' });
+deal('buyer', 'Searching in Anytown', '90003', { stage: 'active', client_name: 'Emerson Sample', client_phone: '(555) 010-3006' });
+deal('buyer', '300 Example Terrace', '90001', { stage: 'closed', sale_price: 845000, escrow_opened: day(-125), closing_date: day(-92), client_name: 'Harper Sample', client_email: 'harper@example.com' });
 
 const vd = db.prepare('INSERT INTO vendors (category, name, company, phone, notes) VALUES (?,?,?,?,?)');
 vd.run('Electrician', 'Alex Example', 'Sample Electric', '(555) 010-2010', 'Fast, fair and always on time.');

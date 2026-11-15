@@ -5,7 +5,7 @@ const express = require('express');
 const multer = require('multer');
 const { db, brandDir, docsDir, hashPassword, verifyPassword, createUser, createProperty } = require('./db');
 const mailer = require('./mailer');
-const { STAGES, PHASES, STATUSES, PROPERTY_FIELDS, VENDOR_FIELDS, KINDS, label } = require('./kinds');
+const { STAGES_BUYER, PHASES_BUYER, DEFAULT_MILESTONES_BUYER, STAGES, PHASES, STATUSES, PROPERTY_FIELDS, VENDOR_FIELDS, KINDS, label } = require('./kinds');
 
 const app = express();
 const PROD = process.env.NODE_ENV === 'production';
@@ -76,7 +76,19 @@ const helpers = {
   },
   daysBetween: (a, b) => Math.round((toUTC(b) - toUTC(a)) / 86400000),
   label,
+  fullCity: (p) => [p.city, p.zip].filter(Boolean).join(' '),
+  telHref: (phone) => 'tel:' + String(phone).replace(/[^\d+]/g, ''),
 };
+const iso = (ms) => new Date(ms).toISOString().slice(0, 10);
+const addDays = (d, n) => iso(toUTC(d) + n * 86400000);
+function addYears(d, n) {
+  const [y, m, dd] = d.split('-').map(Number);
+  const r = new Date(Date.UTC(y + n, m - 1, dd));
+  if (r.getUTCMonth() !== m - 1) r.setUTCDate(0); // Feb 29 -> Feb 28
+  return iso(r.getTime());
+}
+const stagesFor = (p) => (p.side === 'buyer' ? STAGES_BUYER : STAGES);
+const num = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
 
 // ---------- email alerts ----------
 const baseUrl = (req) => (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
@@ -96,6 +108,84 @@ function sendMail(res, mail) {
 }
 const logActivity = (propertyId, userId, kind) =>
   db.prepare('INSERT INTO activity (property_id, user_id, kind) VALUES (?,?,?)').run(propertyId, userId, kind);
+
+// ---------- commission & follow-ups (agent only) ----------
+// Net to the agent: price x commission %, less any referral fee, times the agent's split, less fees.
+function commissionFor(p, site) {
+  const price = num(p.sale_price) ?? num(p.list_price);
+  const pct = num(p.commission_pct) ?? num(site.default_commission_pct);
+  if (price == null || pct == null) return null;
+  const split = num(p.split_pct) ?? num(site.default_split_pct) ?? 100;
+  const gross = (price * pct) / 100;
+  const afterReferral = gross * (1 - (num(p.referral_pct) || 0) / 100);
+  return { gross, net: Math.max(0, (afterReferral * split) / 100 - (num(p.commission_fees) || 0)), pct, split, estimated: num(p.sale_price) == null };
+}
+
+// Every check-in a closed deal calls for: 30 days, 90 days, 12 months, then each anniversary.
+function followUpsFor(p, upTo) {
+  if (p.stage !== 'closed' || !p.closing_date) return [];
+  const c = p.closing_date;
+  const items = [
+    { key: '30d', due: addDays(c, 30), label: '30 days since closing', todo: 'Check in and see how everything is going.' },
+    { key: '90d', due: addDays(c, 90), label: '90 days since closing', todo: 'Check in again and ask if they need any recommendations.' },
+  ];
+  for (let n = 1; n < 100; n++) {
+    const due = addYears(c, n);
+    if (due > upTo) break;
+    items.push({
+      key: `y${n}`, due,
+      label: n === 1 ? '12 months since closing — first homeversary' : `${n}-year homeversary`,
+      todo: 'Send a homeversary note and a home valuation update.',
+    });
+  }
+  return items.filter((i) => i.due <= upTo);
+}
+
+function clientContact(p, logins) {
+  const mine = logins || [];
+  return {
+    name: p.client_name || mine.map((u) => u.name).join(' & ') || null,
+    phone: p.client_phone || (mine.find((u) => u.phone) || {}).phone || null,
+    email: p.client_email || (mine[0] || {}).email || null,
+  };
+}
+function loginsByProperty() {
+  const map = {};
+  db.prepare('SELECT pc.property_id, u.name, u.email, u.phone FROM property_clients pc JOIN users u ON u.id = pc.user_id ORDER BY u.id')
+    .all()
+    .forEach((u) => (map[u.property_id] = map[u.property_id] || []).push(u));
+  return map;
+}
+
+// Once an hour: email the agent about follow-ups that have come due (each one only once).
+function emailDueFollowUps() {
+  if (!mailer.ready()) return;
+  const t = today(), site = getSettings(), logins = loginsByProperty();
+  const base = (process.env.PUBLIC_URL || site.site_url || '').replace(/\/$/, '');
+  const emailed = new Set(db.prepare('SELECT property_id, key FROM followup_log').all().map((r) => `${r.property_id}|${r.key}`));
+  for (const p of db.prepare("SELECT * FROM properties WHERE stage = 'closed' AND closing_date IS NOT NULL").all()) {
+    for (const f of followUpsFor(p, t)) {
+      if (f.due < addDays(t, -7) || emailed.has(`${p.id}|${f.key}`)) continue;
+      const c = clientContact(p, logins[p.id]);
+      db.prepare('INSERT OR IGNORE INTO followup_log (property_id, key, emailed_at) VALUES (?,?,datetime(\'now\'))').run(p.id, f.key);
+      for (const a of agents()) {
+        mailer
+          .send({
+            fromName: site.brand_name || BRAND, color: validColor(site.color_primary) || DEFAULT_COLOR,
+            to: a.email, replyTo: c.email,
+            subject: `Follow up: ${c.name || p.address} — ${f.label}`,
+            lines: [
+              `${f.label}: ${c.name || 'your client'} ${p.side === 'buyer' ? 'bought' : 'sold'} ${p.address} on ${helpers.fdate(p.closing_date)}.`,
+              f.todo,
+              [c.phone, c.email].filter(Boolean).join(' · ') || 'No contact info saved for this client yet.',
+            ],
+            link: base ? `${base}/admin` : null, linkLabel: 'Open my dashboard',
+          })
+          .catch((err) => console.error('Follow-up email could not be sent:', err.message));
+      }
+    }
+  }
+}
 
 // ---------- sessions ----------
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
@@ -314,12 +404,14 @@ app.get('/p/:id', requireUser, (req, res) => {
     daysToClose: p.closing_date && p.stage !== 'closed' ? helpers.daysBetween(t, p.closing_date) : null,
   };
   const done = rows.milestones.filter((m) => m.status === 'done').length;
+  const stages = stagesFor(p);
   res.render('property', {
+    STAGES: stages, PHASES: p.side === 'buyer' ? PHASES_BUYER : PHASES,
     p, rows, stats,
     progress: { done, total: rows.milestones.length },
     nextUp: rows.milestones.filter((m) => m.status !== 'done').slice(0, 3),
     agent: db.prepare("SELECT name, email, phone FROM users WHERE role = 'agent' ORDER BY id LIMIT 1").get(),
-    stageIndex: Math.max(0, STAGES.findIndex((s) => s[0] === p.stage)),
+    stageIndex: Math.max(0, stages.findIndex((s) => s[0] === p.stage)),
     documents: listDocuments(p.id),
     unread: unreadCount(p.id, req.user.id),
   });
@@ -414,17 +506,71 @@ app.get('/vendors', requireUser, (req, res) => {
 
 // ---------- agent admin ----------
 app.get('/admin', requireAgent, (req, res) => {
-  const props = db
+  const t = today(), site = res.locals.site, logins = loginsByProperty();
+  if (!process.env.PUBLIC_URL && site.site_url !== baseUrl(req)) setSetting('site_url', baseUrl(req)); // for links in scheduled emails
+
+  const deals = db
     .prepare(
       `SELECT p.*,
-        (SELECT group_concat(u.name, ', ') FROM property_clients pc JOIN users u ON u.id = pc.user_id WHERE pc.property_id = p.id) AS clients,
-        (SELECT count(*) FROM milestones m WHERE m.property_id = p.id AND m.status = 'done') AS done,
-        (SELECT count(*) FROM milestones m WHERE m.property_id = p.id) AS total,
         (SELECT count(*) FROM messages g WHERE g.property_id = p.id AND g.user_id != @me
            AND g.id > coalesce((SELECT last_id FROM message_reads r WHERE r.property_id = p.id AND r.user_id = @me), 0)) AS unread
-       FROM properties p ORDER BY (p.stage = 'closed'), p.id DESC`
+       FROM properties p`
     )
-    .all({ me: req.user.id });
+    .all({ me: req.user.id })
+    .map((p) => {
+      const closed = p.stage === 'closed';
+      return {
+        ...p, closed,
+        client: clientContact(p, logins[p.id]),
+        hasLogin: !!logins[p.id],
+        stageLabel: label(stagesFor(p), p.stage),
+        commission: commissionFor(p, site),
+        daysInEscrow:
+          p.escrow_opened && closed && p.closing_date ? helpers.daysBetween(p.escrow_opened, p.closing_date)
+          : p.escrow_opened && p.stage === 'escrow' ? Math.max(0, helpers.daysBetween(p.escrow_opened, t)) : null,
+        daysSinceClose: closed && p.closing_date ? helpers.daysBetween(p.closing_date, t) : null,
+      };
+    });
+
+  // Summary across both sides
+  const sum = (list) => list.reduce((n, d) => n + (d.commission ? d.commission.net : 0), 0);
+  const inEscrow = deals.filter((d) => d.stage === 'escrow');
+  const closedThisYear = deals.filter((d) => d.closed && (d.closing_date || '').startsWith(t.slice(0, 4)));
+  const summary = {
+    listings: deals.filter((d) => d.side === 'seller' && ['prep', 'active', 'offers'].includes(d.stage)).length,
+    buyersSearching: deals.filter((d) => d.side === 'buyer' && ['prep', 'active', 'offers'].includes(d.stage)).length,
+    inEscrow: inEscrow.length,
+    pending: sum(inEscrow),
+    closedCount: closedThisYear.length,
+    closedVolume: closedThisYear.reduce((n, d) => n + (num(d.sale_price) || 0), 0),
+    earned: sum(closedThisYear),
+    year: t.slice(0, 4),
+    hasCommission: num(site.default_commission_pct) != null || deals.some((d) => d.commission),
+  };
+
+  // Follow-ups: due in the last 45 days and not ticked off, plus what is coming in the next 30.
+  const done = new Set(db.prepare('SELECT property_id, key FROM followup_log WHERE done_at IS NOT NULL').all().map((r) => `${r.property_id}|${r.key}`));
+  const followUps = deals
+    .flatMap((d) => followUpsFor(d, addDays(t, 30)).map((f) => ({ ...f, deal: d, upcoming: f.due > t })))
+    .filter((f) => f.due >= addDays(t, -45) && !done.has(`${f.deal.id}|${f.key}`))
+    .sort((a, b) => (a.due < b.due ? -1 : 1));
+
+  // The list: one side at a time, current or past, grouped by ZIP code.
+  const side = req.query.side === 'buyer' ? 'buyer' : 'seller';
+  const view = ['past', 'all'].includes(req.query.view) ? req.query.view : 'current';
+  const order = STAGES.map((s) => s[0]);
+  const shown = deals
+    .filter((d) => d.side === side && (view === 'all' || (view === 'past') === d.closed))
+    .sort((a, b) => order.indexOf(a.stage) - order.indexOf(b.stage) || (b.closing_date || '').localeCompare(a.closing_date || '') || a.address.localeCompare(b.address));
+  const groups = [];
+  for (const d of shown) {
+    const zip = d.zip || '';
+    let g = groups.find((x) => x.zip === zip);
+    if (!g) groups.push((g = { zip, deals: [] }));
+    g.deals.push(d);
+  }
+  groups.sort((a, b) => (a.zip === '' ? 1 : b.zip === '' ? -1 : a.zip.localeCompare(b.zip)));
+
   const clients = db
     .prepare(
       `SELECT u.id, u.name, u.email,
@@ -432,14 +578,25 @@ app.get('/admin', requireAgent, (req, res) => {
        FROM users u WHERE u.role = 'client' ORDER BY u.name`
     )
     .all();
-  res.render('admin/home', { props, clients });
+  const counts = { seller: deals.filter((d) => d.side === 'seller').length, buyer: deals.filter((d) => d.side === 'buyer').length };
+  res.render('admin/home', { summary, followUps, groups, side, view, counts, shownCount: shown.length, clients, mailReady: mailer.ready() });
+});
+
+app.post('/admin/followups/:pid/:key/done', requireAgent, (req, res) => {
+  if (/^(30d|90d|y\d{1,2})$/.test(req.params.key) && db.prepare('SELECT 1 FROM properties WHERE id = ?').get(req.params.pid)) {
+    db.prepare(
+      "INSERT INTO followup_log (property_id, key, done_at) VALUES (?,?,datetime('now')) ON CONFLICT(property_id, key) DO UPDATE SET done_at = excluded.done_at"
+    ).run(req.params.pid, req.params.key);
+  }
+  res.redirect('/admin#followups');
 });
 
 app.post('/admin/properties', requireAgent, (req, res) => {
   const address = String(req.body.address || '').trim();
   if (!address) return res.redirect('/admin');
-  const id = createProperty(address, String(req.body.city || '').trim());
-  flash(req, 'Sale created with the standard milestone checklist. Fill in the details and give your client access below.');
+  const zip = (/\d{5}/.exec(String(req.body.zip || '')) || [''])[0];
+  const id = createProperty(address, String(req.body.city || '').trim(), zip, req.body.side);
+  flash(req, 'Deal created with the standard milestone checklist. Fill in the details below.');
   res.redirect(`/admin/p/${id}`);
 });
 
@@ -447,8 +604,9 @@ app.post('/admin/properties', requireAgent, (req, res) => {
 function readFields(fields, body) {
   const out = {};
   for (const f of fields) {
+    if (f.type === 'heading') continue;
     let v = String(body[f.name] ?? '').trim();
-    if (f.type === 'number' || f.type === 'money') {
+    if (f.type === 'number' || f.type === 'money' || f.type === 'percent') {
       v = v === '' || !Number.isFinite(Number(v)) ? null : Number(v);
     } else if (f.type === 'date') {
       v = /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
@@ -524,7 +682,13 @@ app.post('/admin/p/:pid/clients', requireAgent, loadProperty, (req, res) => {
       flash(req, `${email} already has a login. Pick them from the “existing client” list instead.`);
       return res.redirect(back);
     }
-    userId = createUser({ name, email, password, role: 'client' });
+    const phone = String(req.body.phone || '').trim().slice(0, 40);
+    userId = createUser({ name, email, phone, password, role: 'client' });
+    if (!req.property.client_name) {
+      db.prepare('UPDATE properties SET client_name = ?, client_email = coalesce(client_email, ?), client_phone = coalesce(client_phone, ?) WHERE id = ?').run(
+        name, email, phone || null, req.property.id
+      );
+    }
     flash(req, `Login created for ${name}. Send them this page’s web address, their email (${email}) and the password you just set. It is not shown again.`);
   }
   db.prepare('INSERT OR IGNORE INTO property_clients (property_id, user_id) VALUES (?,?)').run(req.property.id, userId);
@@ -670,6 +834,8 @@ app.post(
     setSetting('license', text('license', 60));
     setSetting('website', /^https?:\/\//i.test(text('website', 300)) ? text('website', 300) : '');
     setSetting('about', text('about', 3000));
+    setSetting('default_commission_pct', num(b.default_commission_pct) == null ? '' : String(num(b.default_commission_pct)));
+    setSetting('default_split_pct', num(b.default_split_pct) == null ? '' : String(num(b.default_split_pct)));
     for (const key of ['logo', 'headshot']) {
       const file = req.files && req.files[key] && req.files[key][0];
       if (file || b[`remove_${key}`]) {
@@ -679,14 +845,14 @@ app.post(
     }
     const name = text('name', 120);
     if (name) db.prepare('UPDATE users SET name = ?, phone = ? WHERE id = ?').run(name, text('phone', 40), req.user.id);
-    flash(req, 'Branding saved.');
+    flash(req, 'Settings saved.');
     res.redirect('/admin/settings');
   }
 );
 
 // Client logins
 app.get('/admin/clients/:uid', requireAgent, (req, res) => {
-  const c = db.prepare("SELECT id, name, email FROM users WHERE id = ? AND role = 'client'").get(req.params.uid);
+  const c = db.prepare("SELECT id, name, email, phone FROM users WHERE id = ? AND role = 'client'").get(req.params.uid);
   if (!c) return res.redirect('/admin');
   res.render('admin/client', { c });
 });
@@ -701,7 +867,7 @@ app.post('/admin/clients/:uid', requireAgent, (req, res) => {
   if (!name || !validEmail(email)) { flash(req, 'Enter a name and a valid email.'); return res.redirect(back); }
   if (db.prepare('SELECT 1 FROM users WHERE email = ? AND id != ?').get(email, c.id)) { flash(req, 'Another login already uses that email.'); return res.redirect(back); }
   if (password && password.length < 8) { flash(req, 'The password needs at least 8 characters.'); return res.redirect(back); }
-  db.prepare('UPDATE users SET name = ?, email = ? WHERE id = ?').run(name, email, c.id);
+  db.prepare('UPDATE users SET name = ?, email = ?, phone = ? WHERE id = ?').run(name, email, String(req.body.phone || '').trim().slice(0, 40) || null, c.id);
   if (password) {
     db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), c.id);
     db.prepare('DELETE FROM sessions WHERE user_id = ?').run(c.id);
@@ -722,6 +888,8 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
   res.status(500).send('Something went wrong. Please try again.');
 });
 
+setTimeout(emailDueFollowUps, 20000).unref();
+setInterval(emailDueFollowUps, 3600000).unref();
 setInterval(() => db.prepare('DELETE FROM sessions WHERE expires < ?').run(Date.now()), 3600000).unref();
 
 const port = Number(process.env.PORT) || 3000;

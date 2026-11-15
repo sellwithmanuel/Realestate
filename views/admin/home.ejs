@@ -1,38 +1,122 @@
-<%- include('../partials/head', { title: 'All sales' }) %>
-<h1>Your sales</h1>
-<section class="card">
-  <% if (!props.length) { %><p class="muted">No sales yet. Add your first one below.</p><% } %>
-  <div class="list">
-  <% props.forEach(function (p) { %>
-    <a class="listrow" href="/admin/p/<%= p.id %>">
-      <span><strong><%= p.address %></strong><small><%= p.clients || 'No client login linked yet' %></small>
-        <% if (p.unread) { %><small class="newmsg"><%= p.unread %> new message<%= p.unread === 1 ? '' : 's' %></small><% } %></span>
-      <span class="right"><span class="pill"><%= label(STAGES, p.stage) %></span><small><%= p.done %> of <%= p.total %> milestones</small></span>
-    </a>
-  <% }) %>
+<%- include('../partials/head', { title: 'Dashboard' }) %>
+<h1>Dashboard</h1>
+
+<section class="stats">
+  <div><b><%= summary.listings %></b><span>current listing<%= summary.listings === 1 ? '' : 's' %></span></div>
+  <div><b><%= summary.buyersSearching %></b><span>active buyer<%= summary.buyersSearching === 1 ? '' : 's' %></span></div>
+  <div><b><%= summary.inEscrow %></b><span>in escrow</span></div>
+  <div><b><%= summary.hasCommission ? money(summary.pending) : '—' %></b><span>your commission pending in escrow</span></div>
+  <div><b><%= summary.closedCount %></b><span>closed in <%= summary.year %><%= summary.closedVolume ? ' · ' + money(summary.closedVolume) : '' %></span></div>
+  <div><b><%= summary.hasCommission ? money(summary.earned) : '—' %></b><span>your commission earned in <%= summary.year %></span></div>
+</section>
+<% if (!summary.hasCommission) { %>
+<p class="muted small">To see commission amounts, enter your usual commission % and split under <a href="/admin/settings#commission">Settings</a>.</p>
+<% } %>
+
+<section class="card" id="followups">
+  <h2>Follow-ups <small>30 days, 90 days, 12 months and every year after closing</small></h2>
+  <% if (!followUps.length) { %><p class="muted">Nothing due right now. Past clients show up here when it is time to reach out.</p><% } %>
+  <% followUps.forEach(function (f) { var c = f.deal.client; %>
+  <div class="follow <%= f.upcoming ? 'upcoming' : 'due' %>">
+    <div>
+      <span class="pill <%= f.upcoming ? '' : 'alert' %>"><%= f.upcoming ? 'Coming ' + fdate(f.due) : f.due === today ? 'Due today' : 'Due ' + fdate(f.due) %></span>
+      <strong><%= c.name || 'Client' %> — <%= f.label %></strong>
+      <span class="muted"><%= f.todo %> <a href="/admin/p/<%= f.deal.id %>"><%= f.deal.address %></a>, closed <%= fdate(f.deal.closing_date) %>.</span>
+      <span class="links">
+        <% if (c.phone) { %><a href="<%= telHref(c.phone) %>"><%= c.phone %></a><% } %>
+        <% if (c.email) { %><a href="mailto:<%= c.email %>"><%= c.email %></a><% } %>
+        <% if (!c.phone && !c.email) { %><span class="muted">No contact info saved</span><% } %>
+      </span>
+    </div>
+    <% if (!f.upcoming) { %>
+    <form method="post" action="/admin/followups/<%= f.deal.id %>/<%= f.key %>/done"><button class="btn ghost">Done</button></form>
+    <% } %>
   </div>
-  <details class="add" <%= props.length ? '' : 'open' %>>
-    <summary>+ Add a new sale</summary>
+  <% }) %>
+  <% if (!mailReady) { %><p class="muted small">Email is not set up yet, so these reminders only appear here. Once it is, each one is also emailed to you on the day it comes due.</p><% } %>
+</section>
+
+<div class="tabs" id="deals">
+  <a class="<%= side === 'seller' ? 'on' : '' %>" href="/admin?side=seller&view=<%= view %>#deals">Sellers <small><%= counts.seller %></small></a>
+  <a class="<%= side === 'buyer' ? 'on' : '' %>" href="/admin?side=buyer&view=<%= view %>#deals">Buyers <small><%= counts.buyer %></small></a>
+  <span class="spacer"></span>
+  <a class="sub <%= view === 'current' ? 'on' : '' %>" href="/admin?side=<%= side %>&view=current#deals">Current</a>
+  <a class="sub <%= view === 'past' ? 'on' : '' %>" href="/admin?side=<%= side %>&view=past#deals">Past (closed)</a>
+  <a class="sub <%= view === 'all' ? 'on' : '' %>" href="/admin?side=<%= side %>&view=all#deals">All</a>
+</div>
+
+<% if (!shownCount) { %>
+<section class="card"><p class="muted">No <%= view === 'past' ? 'closed' : view === 'current' ? 'current' : '' %> <%= side %> deals yet.</p></section>
+<% } %>
+
+<% groups.forEach(function (g) { %>
+<h3 class="zip"><%= g.zip ? 'ZIP ' + g.zip : 'No ZIP code entered' %> <small><%= g.deals.length %> deal<%= g.deals.length === 1 ? '' : 's' %></small></h3>
+<section class="card deals">
+  <% g.deals.forEach(function (d) { var c = d.client; %>
+  <article class="deal">
+    <div class="d-main">
+      <a class="d-address" href="/admin/p/<%= d.id %>"><%= d.address %></a>
+      <span class="muted"><%= fullCity(d) %></span>
+      <span><span class="pill <%= d.closed ? 'ok' : '' %>"><%= d.stageLabel %></span>
+        <% if (d.unread) { %><a class="newmsg" href="/admin/p/<%= d.id %>#messages"><%= d.unread %> new message<%= d.unread === 1 ? '' : 's' %></a><% } %></span>
+    </div>
+    <div class="d-client">
+      <small>Client</small>
+      <strong><%= c.name || '—' %></strong>
+      <% if (c.phone) { %><a href="<%= telHref(c.phone) %>"><%= c.phone %></a><% } %>
+      <% if (c.email) { %><a href="mailto:<%= c.email %>"><%= c.email %></a><% } %>
+      <% if (!d.hasLogin && d.side === 'seller') { %><span class="muted">No portal login yet</span><% } %>
+    </div>
+    <div class="d-money">
+      <small><%= d.sale_price ? (d.closed ? 'Sold for' : 'Accepted price') : d.side === 'buyer' ? 'Price' : 'List price' %></small>
+      <strong><%= money(d.sale_price || d.list_price) || '—' %></strong>
+      <% if (d.commission) { %>
+      <span title="<%= d.commission.pct %>% commission = <%= money(d.commission.gross) %>, your split <%= d.commission.split %>%">Your commission: <b><%= money(d.commission.net) %></b><%= d.commission.estimated ? ' (est.)' : '' %></span>
+      <% } %>
+    </div>
+    <div class="d-dates">
+      <small>Escrow</small>
+      <% if (d.escrow_opened) { %><span>Opened <%= fdate(d.escrow_opened) %></span><% } %>
+      <% if (d.closing_date) { %><span><%= d.closed ? 'Closed' : 'Closing' %> <%= fdate(d.closing_date) %></span><% } %>
+      <% if (d.daysInEscrow != null) { %><span><b><%= d.daysInEscrow %></b> day<%= d.daysInEscrow === 1 ? '' : 's' %> in escrow<%= d.closed ? '' : ' so far' %></span><% } %>
+      <% if (d.daysSinceClose != null) { %><span>Closed <b><%= d.daysSinceClose %></b> day<%= d.daysSinceClose === 1 ? '' : 's' %> ago</span><% } %>
+      <% if (!d.escrow_opened && !d.closing_date) { %><span class="muted"><%= d.closed ? 'Add the escrow dates' : 'Not in escrow yet' %></span><% } %>
+    </div>
+  </article>
+  <% }) %>
+</section>
+<% }) %>
+
+<section class="card">
+  <details class="add first" <%= counts.seller + counts.buyer ? '' : 'open' %>>
+    <summary>+ Add a new deal</summary>
     <form method="post" action="/admin/properties">
       <div class="fields">
         <label class="wide"><span>Street address *</span><input name="address" required></label>
-        <label class="wide"><span>City, state, ZIP</span><input name="city"></label>
+        <label><span>City, state</span><input name="city"></label>
+        <label><span>ZIP code</span><input name="zip" inputmode="numeric" maxlength="10"></label>
+        <label class="wide"><span>I represent the</span><select name="side">
+          <option value="seller" <%= side === 'seller' ? 'selected' : '' %>>Seller — I am listing their home</option>
+          <option value="buyer" <%= side === 'buyer' ? 'selected' : '' %>>Buyer — I am helping them buy</option>
+        </select></label>
       </div>
-      <button class="btn">Create sale</button>
+      <button class="btn">Create deal</button>
     </form>
   </details>
 </section>
 
-<h2 class="sect">Client logins</h2>
 <section class="card">
-  <% if (!clients.length) { %><p class="muted">Client logins are created from inside a sale, under “Client access”.</p><% } %>
-  <div class="list">
-  <% clients.forEach(function (c) { %>
-    <a class="listrow" href="/admin/clients/<%= c.id %>">
-      <span><strong><%= c.name %></strong><small><%= c.email %></small></span>
-      <span class="right"><small><%= c.homes || 'Not linked to a sale' %></small></span>
-    </a>
-  <% }) %>
-  </div>
+  <details class="add first">
+    <summary>Client portal logins (<%= clients.length %>)</summary>
+    <% if (!clients.length) { %><p class="muted">Client logins are created from inside a deal, under “Client access”.</p><% } %>
+    <div class="list">
+    <% clients.forEach(function (c) { %>
+      <a class="listrow" href="/admin/clients/<%= c.id %>">
+        <span><strong><%= c.name %></strong><small><%= c.email %></small></span>
+        <span class="right"><small><%= c.homes || 'Not linked to a deal' %></small></span>
+      </a>
+    <% }) %>
+    </div>
+  </details>
 </section>
 <%- include('../partials/foot') %>

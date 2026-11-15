@@ -9,6 +9,24 @@ const STAGES = [
   ['closed', 'Sold'],
 ];
 
+// Wording for deals where the agent represents the buyer.
+const STAGES_BUYER = [
+  ['prep', 'Getting ready'],
+  ['active', 'Home search'],
+  ['offers', 'Making offers'],
+  ['escrow', 'In escrow'],
+  ['closed', 'Closed'],
+];
+const PHASES_BUYER = [
+  ['prep', 'Getting ready to buy'],
+  ['market', 'Home search & offers'],
+  ['escrow', 'In escrow'],
+];
+const SIDES = [
+  ['seller', 'Seller — I am listing their home'],
+  ['buyer', 'Buyer — I am helping them buy'],
+];
+
 const PHASES = [
   ['prep', 'Getting ready to list'],
   ['market', 'On the market'],
@@ -60,11 +78,38 @@ const DEFAULT_MILESTONES = [
   ['escrow', 'Close of escrow — funds & keys', ''],
 ];
 
+const DEFAULT_MILESTONES_BUYER = [
+  ['prep', 'Buyer consultation', ''],
+  ['prep', 'Buyer representation agreement signed', ''],
+  ['prep', 'Loan pre-approval received', ''],
+  ['market', 'Home search started', ''],
+  ['market', 'Offer submitted', ''],
+  ['market', 'Offer accepted', ''],
+  ['escrow', 'Escrow opened', ''],
+  ['escrow', 'Earnest money deposit sent to escrow', 'Buyer'],
+  ['escrow', 'Seller disclosures reviewed', ''],
+  ['escrow', 'Home inspection', 'Buyer'],
+  ['escrow', 'Termite inspection & report', 'Seller'],
+  ['escrow', 'Request for repairs negotiated', ''],
+  ['escrow', 'Appraisal', 'Buyer'],
+  ['escrow', 'Contingencies removed', ''],
+  ['escrow', 'Loan approved', ''],
+  ['escrow', "Homeowner's insurance in place", 'Buyer'],
+  ['escrow', "Owner's title insurance policy", 'Seller'],
+  ['escrow', "Lender's title insurance policy", 'Buyer'],
+  ['escrow', 'Escrow fees', 'Split'],
+  ['escrow', 'Final walk-through', ''],
+  ['escrow', 'Closing documents signed', ''],
+  ['escrow', 'Close of escrow — keys', ''],
+];
+
 const label = (pairs, v) => (pairs.find((p) => p[0] === v) || [v, v])[1];
 
 const PROPERTY_FIELDS = [
   { name: 'address', label: 'Street address', type: 'text', required: true, wide: true },
-  { name: 'city', label: 'City, state, ZIP', type: 'text' },
+  { name: 'city', label: 'City, state', type: 'text' },
+  { name: 'zip', label: 'ZIP code', type: 'text' },
+  { name: 'side', label: 'I represent the', type: 'select', options: SIDES },
   { name: 'stage', label: 'Current stage', type: 'select', options: STAGES },
   { name: 'list_price', label: 'List price', type: 'money' },
   { name: 'list_date', label: 'Date listed on MLS', type: 'date' },
@@ -75,6 +120,16 @@ const PROPERTY_FIELDS = [
   { name: 'escrow_opened', label: 'Escrow opened', type: 'date' },
   { name: 'closing_date', label: 'Closing date', type: 'date' },
   { name: 'sale_price', label: 'Accepted / sale price', type: 'money' },
+  { type: 'heading', label: 'Client contact (for your records — only you see this)' },
+  { name: 'client_name', label: 'Client name(s)', type: 'text' },
+  { name: 'client_phone', label: 'Client phone', type: 'tel' },
+  { name: 'client_email', label: 'Client email', type: 'email' },
+  { type: 'heading', label: 'Your commission (only you see this)' },
+  { name: 'commission_pct', label: 'Commission % (blank = your default)', type: 'percent' },
+  { name: 'split_pct', label: 'Your split % (blank = your default)', type: 'percent' },
+  { name: 'referral_pct', label: 'Referral fee % (taken off the top)', type: 'percent' },
+  { name: 'commission_fees', label: 'Other fees deducted from you', type: 'money' },
+  { type: 'heading', label: 'Shown to your client' },
   { name: 'value_url', label: 'Home value report link (paste the client’s HomeIQ report link)', type: 'url', wide: true },
   { name: 'headline', label: 'Status note shown at the top of the client page', type: 'textarea', wide: true },
 ];
@@ -181,4 +236,4 @@ const KINDS = {
   },
 };
 
-module.exports = { STAGES, PHASES, STATUSES, PAID_BY, DEFAULT_MILESTONES, PROPERTY_FIELDS, VENDOR_FIELDS, KINDS, label };
+module.exports = { STAGES_BUYER, PHASES_BUYER, SIDES, DEFAULT_MILESTONES_BUYER, STAGES, PHASES, STATUSES, PAID_BY, DEFAULT_MILESTONES, PROPERTY_FIELDS, VENDOR_FIELDS, KINDS, label };

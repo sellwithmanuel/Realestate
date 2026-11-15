@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const Database = require('better-sqlite3');
-const { DEFAULT_MILESTONES } = require('./kinds');
+const { DEFAULT_MILESTONES, DEFAULT_MILESTONES_BUYER } = require('./kinds');
 
 const dir = process.env.DATA_DIR || path.join(__dirname, 'data');
 fs.mkdirSync(dir, { recursive: true });
@@ -126,9 +126,33 @@ CREATE TABLE IF NOT EXISTS activity (
 );
 `);
 // Columns added after the first release.
-if (!db.prepare("SELECT 1 FROM pragma_table_info('properties') WHERE name = 'value_url'").get()) {
-  db.exec('ALTER TABLE properties ADD COLUMN value_url TEXT');
+db.exec(`
+CREATE TABLE IF NOT EXISTS followup_log (
+  property_id INTEGER NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  key TEXT NOT NULL,
+  emailed_at TEXT, done_at TEXT,
+  PRIMARY KEY (property_id, key)
+);
+`);
+const hasColumn = (name) => !!db.prepare("SELECT 1 FROM pragma_table_info('properties') WHERE name = ?").get(name);
+const addColumn = (name, type) => { if (!hasColumn(name)) db.exec(`ALTER TABLE properties ADD COLUMN ${name} ${type}`); };
+addColumn('value_url', 'TEXT');
+if (!hasColumn('zip')) {
+  db.exec('ALTER TABLE properties ADD COLUMN zip TEXT');
+  // ZIP used to be typed into the city line; move it into its own field.
+  for (const p of db.prepare('SELECT id, city FROM properties').all()) {
+    const m = /^(.*?)[,\s]*\b(\d{5})(-\d{4})?\s*$/.exec(p.city || '');
+    if (m) db.prepare('UPDATE properties SET city = ?, zip = ? WHERE id = ?').run(m[1].trim() || null, m[2], p.id);
+  }
 }
+addColumn('side', "TEXT NOT NULL DEFAULT 'seller'");
+addColumn('client_name', 'TEXT');
+addColumn('client_phone', 'TEXT');
+addColumn('client_email', 'TEXT');
+addColumn('commission_pct', 'REAL');
+addColumn('split_pct', 'REAL');
+addColumn('referral_pct', 'REAL');
+addColumn('commission_fees', 'REAL');
 
 const brandDir = path.join(dir, 'uploads', 'brand');
 const docsDir = path.join(dir, 'uploads', 'docs');
@@ -156,10 +180,13 @@ function createUser({ name, email, phone, password, role }) {
   return info.lastInsertRowid;
 }
 
-const createProperty = db.transaction((address, city) => {
-  const id = db.prepare('INSERT INTO properties (address, city) VALUES (?,?)').run(address, city || null).lastInsertRowid;
+const createProperty = db.transaction((address, city, zip, side) => {
+  side = side === 'buyer' ? 'buyer' : 'seller';
+  const id = db
+    .prepare('INSERT INTO properties (address, city, zip, side) VALUES (?,?,?,?)')
+    .run(address, city || null, zip || null, side).lastInsertRowid;
   const ins = db.prepare('INSERT INTO milestones (property_id, phase, title, paid_by, sort) VALUES (?,?,?,?,?)');
-  DEFAULT_MILESTONES.forEach(([phase, title, paidBy], i) => ins.run(id, phase, title, paidBy, (i + 1) * 10));
+  (side === 'buyer' ? DEFAULT_MILESTONES_BUYER : DEFAULT_MILESTONES).forEach(([phase, title, paidBy], i) => ins.run(id, phase, title, paidBy, (i + 1) * 10));
   return id;
 });
 

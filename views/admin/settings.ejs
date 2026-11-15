@@ -1,5 +1,5 @@
-<%- include('../partials/head', { title: 'Branding' }) %>
-<h1>Branding & your profile</h1>
+<%- include('../partials/head', { title: 'Settings' }) %>
+<h1>Settings</h1>
 <p class="muted">This is how the portal looks to your clients. Changes apply everywhere as soon as you save.</p>
 <form method="post" action="/admin/settings" enctype="multipart/form-data">
 <section class="card">
@@ -26,7 +26,15 @@
   </div>
   <p class="muted small">Clients see your login email (<%= user.email %>) as your contact email.</p>
 </section>
-<button class="btn">Save branding</button>
+<section class="card" id="commission">
+  <h2>Your commission</h2>
+  <p class="muted">Used to estimate your take-home on every deal. You can override both numbers on any single deal. Clients never see this.</p>
+  <div class="fields">
+    <label><span>Usual commission % of the sale price</span><input type="number" name="default_commission_pct" value="<%= site.default_commission_pct || '' %>" min="0" max="100" step="any" placeholder="e.g. 2.5"></label>
+    <label><span>Your split % (the share you keep)</span><input type="number" name="default_split_pct" value="<%= site.default_split_pct || '' %>" min="0" max="100" step="any" placeholder="e.g. 80"></label>
+  </div>
+</section>
+<button class="btn">Save settings</button>
 </form>
 <section class="card" id="email" style="margin-top:16px">
   <h2>Email alerts</h2>

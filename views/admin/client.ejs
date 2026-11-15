@@ -1,10 +1,11 @@
 <%- include('../partials/head', { title: c.name }) %>
-<p><a href="/admin">← All sales</a></p>
+<p><a href="/admin">← Dashboard</a></p>
 <section class="card narrow">
   <h1><%= c.name %></h1>
   <form method="post" action="/admin/clients/<%= c.id %>" class="stack">
     <label><span>Name</span><input name="name" value="<%= c.name %>" required></label>
     <label><span>Email (their login)</span><input type="email" name="email" value="<%= c.email %>" required></label>
+    <label><span>Phone</span><input type="tel" name="phone" value="<%= c.phone || '' %>"></label>
     <label><span>Set a new password (leave blank to keep the current one)</span><input name="password" minlength="8" autocomplete="off"></label>
     <button class="btn">Save</button>
   </form>
