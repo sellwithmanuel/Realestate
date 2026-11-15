@@ -6,9 +6,9 @@
   <h2>Look</h2>
   <div class="fields">
     <label class="wide"><span>Business name (shown in the header when there is no logo)</span><input name="brand_name" value="<%= site.brand_name || brand %>" maxlength="80"></label>
-    <label><span>Main color (header banner, buttons, links)</span><input type="color" name="color_primary" value="<%= theme.primary || '#1d4f45' %>"></label>
-    <label><span>Accent color (small labels and highlights)</span><input type="color" name="color_accent" value="<%= theme.accent || '#b0843a' %>"></label>
-    <label><span>Logo (PNG or JPG, wide format works best)</span><input type="file" name="logo" accept=".png,.jpg,.jpeg,.webp,.gif">
+    <label><span>Main color (header banner, buttons, links)</span><input type="color" name="color_primary" value="<%= theme.primary || theme.defaultColor %>"></label>
+    <label><span>Accent color (small labels and highlights)</span><input type="color" name="color_accent" value="<%= theme.accent || theme.defaultColor %>"></label>
+    <label><span>Logo (leave empty to keep your Manuel Sanchez | SERHANT. logo)</span><input type="file" name="logo" accept=".png,.jpg,.jpeg,.webp,.gif">
       <% if (site.logo) { %><span class="current"><img src="/brand/<%= site.logo %>" alt="Current logo"><span class="checkline"><input type="checkbox" name="remove_logo" value="1"> Remove logo</span></span><% } %></label>
     <label><span>Your headshot (square photo works best)</span><input type="file" name="headshot" accept=".png,.jpg,.jpeg,.webp,.gif">
       <% if (site.headshot) { %><span class="current"><img class="round" src="/brand/<%= site.headshot %>" alt="Current headshot"><span class="checkline"><input type="checkbox" name="remove_headshot" value="1"> Remove photo</span></span><% } %></label>
@@ -28,4 +28,14 @@
 </section>
 <button class="btn">Save branding</button>
 </form>
+<section class="card" id="email" style="margin-top:16px">
+  <h2>Email alerts</h2>
+  <p class="muted">You get an email when a client messages you, checks their home value, or comes back to the portal after closing. Clients get an email when you message them.</p>
+  <% if (mailReady) { %>
+  <p><strong>Email is set up.</strong></p>
+  <form method="post" action="/admin/settings/test-email"><button class="btn ghost">Send me a test email</button></form>
+  <% } else { %>
+  <p><strong>Email is not set up yet</strong>, so no alerts are being sent. It needs your email provider’s sending details added to the hosting settings.</p>
+  <% } %>
+</section>
 <%- include('../partials/foot') %>

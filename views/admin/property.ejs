@@ -31,6 +31,14 @@
     </div>
   <% }) %>
   </div>
+  <% if (activity.length) { %>
+  <h3>Recent client activity</h3>
+  <ul class="activity">
+    <% activity.forEach(function (a) { %>
+    <li><%= a.name %> <%= a.kind === 'value' ? 'checked their home value' : 'visited the portal' %> <time class="muted" datetime="<%= a.created_at.replace(' ', 'T') %>Z"><%= a.created_at %> UTC</time></li>
+    <% }) %>
+  </ul>
+  <% } %>
   <details class="add" <%= linked.length ? '' : 'open' %>>
     <summary>+ Create a login for a client</summary>
     <form method="post" action="/admin/p/<%= p.id %>/clients">
@@ -123,5 +131,6 @@
 <form method="post" action="/admin/p/<%= p.id %>/delete" onsubmit="return confirm('Delete this entire sale and everything in it? This cannot be undone.')">
   <button class="link danger">Delete this sale</button>
 </form>
+<script>document.querySelectorAll('.activity time').forEach(function (t) { t.textContent = '· ' + new Date(t.dateTime).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); });</script>
 <script src="/chat.js"></script>
 <%- include('../partials/foot') %>

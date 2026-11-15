@@ -77,4 +77,8 @@
   document.querySelectorAll('[data-chat-open]').forEach(function (b) { b.addEventListener('click', function () { setOpen(true); }); });
   root.querySelector('[data-chat-close]').addEventListener('click', function () { setOpen(false); opener.focus(); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !panel.hidden) setOpen(false); });
+  // Arriving from an email alert opens the chat straight away.
+  function openFromLink() { if (location.hash === '#chat') setOpen(true); }
+  window.addEventListener('hashchange', openFromLink);
+  openFromLink();
 })();

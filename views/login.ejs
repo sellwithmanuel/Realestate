@@ -1,6 +1,6 @@
 <%- include('partials/head', { title: 'Sign in', bodyClass: 'auth' }) %>
 <section class="authcard">
-  <% if (site.logo) { %><img class="authlogo" src="/brand/<%= site.logo %>" alt="<%= brand %>"><% } %>
+  <img class="authlogo" src="<%= site.logo ? '/brand/' + site.logo : '/logo.png' %>" alt="<%= brand %>">
   <h1>Welcome back</h1>
   <p class="muted">Sign in to see exactly where your home sale stands.</p>
   <form method="post" action="/login" class="stack">

@@ -4,11 +4,13 @@ const fs = require('fs');
 const express = require('express');
 const multer = require('multer');
 const { db, brandDir, docsDir, hashPassword, verifyPassword, createUser, createProperty } = require('./db');
+const mailer = require('./mailer');
 const { STAGES, PHASES, STATUSES, PROPERTY_FIELDS, VENDOR_FIELDS, KINDS, label } = require('./kinds');
 
 const app = express();
 const PROD = process.env.NODE_ENV === 'production';
-const BRAND = process.env.BRAND_NAME || 'Sell With Manuel';
+const BRAND = process.env.BRAND_NAME || 'Manuel Sanchez | SERHANT.';
+const DEFAULT_COLOR = '#121275';
 const TIME_ZONE = process.env.TIME_ZONE || 'America/Los_Angeles';
 const SESSION_DAYS = 30;
 
@@ -76,6 +78,25 @@ const helpers = {
   label,
 };
 
+// ---------- email alerts ----------
+const baseUrl = (req) => (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+const agents = () => db.prepare("SELECT name, email FROM users WHERE role = 'agent'").all();
+const lastSent = new Map(); // throttle key -> time of last email
+function throttled(key, minutes) {
+  const now = Date.now();
+  if ((lastSent.get(key) || 0) > now - minutes * 60000) return true;
+  lastSent.set(key, now);
+  return false;
+}
+// Sends in the background; a mail problem never breaks the page.
+function sendMail(res, mail) {
+  mailer
+    .send({ fromName: res.locals.brand, color: res.locals.theme.primary || DEFAULT_COLOR, ...mail })
+    .catch((err) => console.error('Email could not be sent:', err.message));
+}
+const logActivity = (propertyId, userId, kind) =>
+  db.prepare('INSERT INTO activity (property_id, user_id, kind) VALUES (?,?,?)').run(propertyId, userId, kind);
+
 // ---------- sessions ----------
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
 
@@ -124,7 +145,7 @@ app.use((req, res, next) => {
   const primary = validColor(site.color_primary), accent = validColor(site.color_accent);
   Object.assign(res.locals, helpers, {
     user: req.user, site, brand: site.brand_name || BRAND, today: today(), error: null, STAGES, PHASES, STATUSES,
-    theme: { primary, accent, ink: primary ? inkFor(primary) : null },
+    theme: { primary, accent, ink: primary ? inkFor(primary) : null, defaultColor: DEFAULT_COLOR },
     hasVendors: !!req.user && !!db.prepare('SELECT 1 FROM vendors').get(),
   });
   next();
@@ -257,6 +278,26 @@ app.get('/p/:id', requireUser, (req, res) => {
   const p = accessibleProperty(req);
   if (!p) return res.status(404).render('message', { title: 'Not found', message: 'We could not find that page.' });
 
+  // Remember client visits (once a day) and tell the agent when a past client comes back after closing.
+  if (req.user.role === 'client') {
+    const seenToday = db
+      .prepare("SELECT 1 FROM activity WHERE property_id = ? AND user_id = ? AND kind = 'visit' AND created_at >= datetime('now', '-1 day')")
+      .get(p.id, req.user.id);
+    if (!seenToday) {
+      logActivity(p.id, req.user.id, 'visit');
+      if (p.stage === 'closed') {
+        for (const a of agents()) {
+          sendMail(res, {
+            to: a.email, replyTo: req.user.email,
+            subject: `${req.user.name} came back to their portal`,
+            lines: [`${req.user.name} just opened their portal for ${p.address}, which has already closed.`, 'It may be a good moment to check in with them.'],
+            link: `${baseUrl(req)}/admin/p/${p.id}`, linkLabel: 'Open this sale',
+          });
+        }
+      }
+    }
+  }
+
   const rows = {};
   for (const [kind, def] of Object.entries(KINDS)) {
     rows[kind] = db.prepare(`SELECT * FROM ${def.table} WHERE property_id = ? ORDER BY ${def.order}`).all(p.id);
@@ -282,6 +323,30 @@ app.get('/p/:id', requireUser, (req, res) => {
     documents: listDocuments(p.id),
     unread: unreadCount(p.id, req.user.id),
   });
+});
+
+// Home value report: note that the client looked, alert the agent, then send them on to the report.
+app.get('/p/:id/value', requireUser, (req, res) => {
+  const p = accessibleProperty(req);
+  if (!p || !p.value_url) return res.status(404).render('message', { title: 'Not found', message: 'We could not find that page.' });
+  if (req.user.role === 'client') {
+    logActivity(p.id, req.user.id, 'value');
+    if (!throttled(`value|${p.id}|${req.user.id}`, 60)) {
+      for (const a of agents()) {
+        sendMail(res, {
+          to: a.email, replyTo: req.user.email,
+          subject: `${req.user.name} just checked their home value`,
+          lines: [
+            `${req.user.name} just opened the home value report for ${p.address}` +
+              (p.stage === 'closed' ? `, which closed${p.closing_date ? ' on ' + helpers.fdate(p.closing_date) : ''}.` : ` (currently: ${label(STAGES, p.stage).toLowerCase()}).`),
+            'They may be thinking about their next move — a good time to reach out.',
+          ],
+          link: `${baseUrl(req)}/admin/p/${p.id}`, linkLabel: 'Open this sale',
+        });
+      }
+    }
+  }
+  res.redirect(p.value_url);
 });
 
 // Documents: only people with access to the sale can open them.
@@ -320,6 +385,23 @@ app.post('/p/:id/messages', requireUser, (req, res) => {
   const body = String(req.body.body || '').trim().slice(0, 2000);
   if (!body) return res.status(400).json({ error: 'empty' });
   db.prepare('INSERT INTO messages (property_id, user_id, body) VALUES (?,?,?)').run(p.id, req.user.id, body);
+
+  // Email the other side. At most one email every 2 minutes per person, so a burst of messages is one alert.
+  const fromClient = req.user.role === 'client';
+  const recipients = fromClient
+    ? agents()
+    : db.prepare('SELECT u.name, u.email FROM users u JOIN property_clients pc ON pc.user_id = u.id WHERE pc.property_id = ?').all(p.id);
+  for (const r of recipients) {
+    if (throttled(`msg|${p.id}|${r.email}`, 2)) continue;
+    sendMail(res, {
+      to: r.email, replyTo: req.user.email,
+      subject: `New message from ${req.user.name} about ${p.address}`,
+      lines: [`${req.user.name} sent you a message about ${p.address}:`],
+      quote: body,
+      link: fromClient ? `${baseUrl(req)}/admin/p/${p.id}#messages` : `${baseUrl(req)}/p/${p.id}#chat`,
+      linkLabel: 'Reply in the portal',
+    });
+  }
   res.json({ ok: true });
 });
 
@@ -404,7 +486,10 @@ app.get('/admin/p/:pid', requireAgent, loadProperty, (req, res) => {
   const others = db
     .prepare("SELECT id, name, email FROM users WHERE role = 'client' AND id NOT IN (SELECT user_id FROM property_clients WHERE property_id = ?) ORDER BY name")
     .all(p.id);
-  res.render('admin/property', { p, rows, linked, others, KINDS, PROPERTY_FIELDS, helpers, documents: listDocuments(p.id), maxDocMB: MAX_DOC_MB });
+  const activity = db
+    .prepare('SELECT a.kind, a.created_at, u.name FROM activity a JOIN users u ON u.id = a.user_id WHERE a.property_id = ? ORDER BY a.id DESC LIMIT 8')
+    .all(p.id);
+  res.render('admin/property', { p, rows, linked, others, activity, KINDS, PROPERTY_FIELDS, helpers, documents: listDocuments(p.id), maxDocMB: MAX_DOC_MB });
 });
 
 app.post('/admin/p/:pid', requireAgent, loadProperty, (req, res) => {
@@ -555,7 +640,22 @@ app.post('/admin/vendors/:id/delete', requireAgent, (req, res) => {
 });
 
 // Branding & agent profile
-app.get('/admin/settings', requireAgent, (req, res) => res.render('admin/settings'));
+app.get('/admin/settings', requireAgent, (req, res) => res.render('admin/settings', { mailReady: mailer.ready() }));
+
+app.post('/admin/settings/test-email', requireAgent, async (req, res) => {
+  try {
+    const sent = await mailer.send({
+      fromName: res.locals.brand, color: res.locals.theme.primary || DEFAULT_COLOR,
+      to: req.user.email, subject: 'Test email from your client portal',
+      lines: ['This is a test. Email alerts from your client portal are working.'],
+      link: `${baseUrl(req)}/admin`, linkLabel: 'Open the portal',
+    });
+    flash(req, sent ? `Test email sent to ${req.user.email}. Check your inbox (and spam folder).` : 'Email is not set up yet.');
+  } catch (err) {
+    flash(req, `The test email could not be sent: ${err.message}`);
+  }
+  res.redirect('/admin/settings#email');
+});
 
 app.post(
   '/admin/settings', requireAgent,

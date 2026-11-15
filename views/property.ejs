@@ -153,7 +153,7 @@
   <section class="card valuecard" id="value">
     <h2>Your home’s value</h2>
     <p class="muted">See your current estimated value, equity and neighborhood trends.</p>
-    <a class="btn full" href="<%= p.value_url %>" target="_blank" rel="noopener noreferrer">Check my home value →</a>
+    <a class="btn full" href="/p/<%= p.id %>/value" target="_blank" rel="noopener">Check my home value →</a>
   </section>
   <% } %>
   <% if (rows.updates.length) { %>

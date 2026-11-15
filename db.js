@@ -116,6 +116,15 @@ CREATE TABLE IF NOT EXISTS message_reads (
   PRIMARY KEY (property_id, user_id)
 );
 `);
+db.exec(`
+CREATE TABLE IF NOT EXISTS activity (
+  id INTEGER PRIMARY KEY,
+  property_id INTEGER NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+`);
 // Columns added after the first release.
 if (!db.prepare("SELECT 1 FROM pragma_table_info('properties') WHERE name = 'value_url'").get()) {
   db.exec('ALTER TABLE properties ADD COLUMN value_url TEXT');

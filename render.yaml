@@ -10,6 +10,15 @@ services:
         value: production
       - key: DATA_DIR
         value: /var/data
+      # Email alerts: fill these in on Render (Environment tab). They are never stored in the code.
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
     disk:
       name: portal-data
       mountPath: /var/data

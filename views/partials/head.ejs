@@ -5,12 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title><%= title %> · <%= brand %></title>
+<link rel="icon" href="/favicon.png">
 <link rel="stylesheet" href="/style.css">
 <% if (theme.primary || theme.accent) { %><style>:root {<% if (theme.primary) { %> --brand: <%= theme.primary %>; --brand-ink: <%= theme.ink %>;<% } %><% if (theme.accent) { %> --gold: <%= theme.accent %>;<% } %> }</style><% } %>
 </head>
 <body class="<%= typeof bodyClass === 'string' ? bodyClass : '' %>">
 <header class="top">
-  <a class="brand" href="/"><% if (site.logo) { %><img src="/brand/<%= site.logo %>" alt="<%= brand %>"><% } else { %><%= brand %><% } %><small>Client Portal</small></a>
+  <a class="brand" href="/"><img src="<%= site.logo ? '/brand/' + site.logo : '/logo.png' %>" alt="<%= brand %>"><small>Client Portal</small></a>
   <% if (user) { %>
   <nav>
     <% if (user.role === 'agent') { %><a href="/admin">All sales</a><a href="/admin/vendors">Trusted pros</a><a href="/admin/settings">Branding</a>
