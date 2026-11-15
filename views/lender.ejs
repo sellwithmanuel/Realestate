@@ -1,0 +1,63 @@
+<%- include('partials/head', { title: buyer.name }) %>
+<section class="hero">
+  <span class="pill light"><%= stageLabel %></span>
+  <h1><%= buyer.name %></h1>
+  <p class="sub">Buyer · working with <%= agent ? agent.name : 'their agent' %></p>
+</section>
+
+<div class="cols">
+<div class="maincol">
+  <section class="card" id="preapproval">
+    <h2>Pre-approval documents</h2>
+    <% if (!preapprovals.length) { %><p class="muted">Nothing uploaded yet. Please add the pre-approval letter here.</p><% } %>
+    <ul class="docs">
+      <% preapprovals.forEach(function (d) { %><li><a href="/p/<%= p.id %>/docs/<%= d.id %>" target="_blank" rel="noopener"><%= d.title %></a><small>Added <%= fdate(d.uploaded_at.slice(0, 10)) %></small></li><% }) %>
+    </ul>
+    <form method="post" action="/p/<%= p.id %>/preapproval" enctype="multipart/form-data" class="stack">
+      <label><span>Files (PDF, image, Word or Excel — up to <%= maxDocMB %> MB each)</span><input type="file" name="files" multiple required accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.heic,.doc,.docx,.xls,.xlsx"></label>
+      <label><span>Name (optional, for a single file)</span><input name="title" placeholder="e.g. Pre-approval letter"></label>
+      <button class="btn">Upload</button>
+    </form>
+  </section>
+
+  <% if (offers.length) { %>
+  <section class="card">
+    <h2>Offers out</h2>
+    <p class="muted">Please call the listing agent to introduce yourself.</p>
+    <ul class="rows">
+      <% offers.forEach(function (o) { %>
+      <li><div><strong><%= o.address || 'Offer' %></strong>
+        <span class="muted"><%= money(o.price) %> · submitted <%= fdate(o.received_date) %></span>
+        <% if (o.listing_agent || o.listing_agent_phone) { %><span class="links">Listing agent: <%= o.listing_agent %>
+          <% if (o.listing_agent_phone) { %><a href="<%= telHref(o.listing_agent_phone) %>"><%= o.listing_agent_phone %></a><% } %>
+          <% if (o.listing_agent_email) { %><a href="mailto:<%= o.listing_agent_email %>"><%= o.listing_agent_email %></a><% } %></span><% } %></div>
+        <span class="pill <%= o.status === 'Accepted' ? 'ok' : '' %>"><%= o.status %></span></li>
+      <% }) %>
+    </ul>
+  </section>
+  <% } %>
+
+  <% if (dates.length || p.closing_date) { %>
+  <section class="card">
+    <h2>Key dates</h2>
+    <dl class="kv">
+      <% dates.forEach(function (d) { %><div><dt><%= d.title %></dt><dd><%= fdate(d.due_date) %><%= d.status === 'done' ? ' · done' : '' %></dd></div><% }) %>
+      <% if (p.closing_date) { %><div><dt>Closing date</dt><dd><strong><%= fdate(p.closing_date) %></strong></dd></div><% } %>
+    </dl>
+  </section>
+  <% } %>
+</div>
+<aside class="sidecol">
+  <section class="card"><h2>Buyer</h2>
+    <ul class="team"><li><strong><%= buyer.name %></strong>
+      <span class="links"><% if (buyer.phone) { %><a href="<%= telHref(buyer.phone) %>"><%= buyer.phone %></a><% } %><% if (buyer.email) { %><a href="mailto:<%= buyer.email %>"><%= buyer.email %></a><% } %></span></li></ul>
+  </section>
+  <% if (agent) { %>
+  <section class="card"><h2>Buyer’s agent</h2>
+    <ul class="team"><li><strong><%= agent.name %></strong><% if (site.title) { %><span class="muted"><%= site.title %></span><% } %>
+      <span class="links"><% if (agent.phone) { %><a href="<%= telHref(agent.phone) %>"><%= agent.phone %></a><% } %><a href="mailto:<%= agent.email %>"><%= agent.email %></a></span></li></ul>
+  </section>
+  <% } %>
+</aside>
+</div>
+<%- include('partials/foot') %>

@@ -1,0 +1,18 @@
+<%# locals: p, criteria, fromAdmin %>
+<form method="post" action="/p/<%= p.id %>/criteria" class="criteriaform">
+  <% if (fromAdmin) { %><input type="hidden" name="from" value="admin"><% } %>
+  <div class="fields">
+    <label><span>Lowest price</span><input type="number" name="price_min" value="<%= criteria.price_min || '' %>" min="0" step="1000" placeholder="$"></label>
+    <label><span>Highest price</span><input type="number" name="price_max" value="<%= criteria.price_max || '' %>" min="0" step="1000" placeholder="$"></label>
+    <label><span>Bedrooms (at least)</span><select name="beds"><% ['', '1', '2', '3', '4', '5'].forEach(function (n) { %><option value="<%= n %>" <%= (criteria.beds || '') === n ? 'selected' : '' %>><%= n ? n + '+' : 'Any' %></option><% }) %></select></label>
+    <label><span>Bathrooms (at least)</span><select name="baths"><% ['', '1', '1.5', '2', '2.5', '3', '4'].forEach(function (n) { %><option value="<%= n %>" <%= (criteria.baths || '') === n ? 'selected' : '' %>><%= n ? n + '+' : 'Any' %></option><% }) %></select></label>
+    <label><span>Type of home</span><input name="types" value="<%= criteria.types || '' %>" placeholder="House, condo, townhome…"></label>
+    <label><span>Neighborhoods</span><input name="areas" value="<%= criteria.areas || '' %>" placeholder="e.g. North Park, Carlsbad"></label>
+    <label class="wide"><span>Must-haves</span><textarea name="must" rows="2" placeholder="Garage, yard, single story…"><%= criteria.must || '' %></textarea></label>
+    <label class="wide"><span>ZIP codes — tap them on the map or type them here</span><input name="zips" value="<%= criteria.zips || '' %>" placeholder="92104, 92116"></label>
+  </div>
+  <p class="muted small">Tap a ZIP code on the map to add or remove it. To outline an exact area, use the shape tool (top left of the map), tap around the area, and tap the first point again to finish.</p>
+  <input type="hidden" name="shapes" value="<%= criteria.shapes ? JSON.stringify(criteria.shapes) : '' %>">
+  <div class="areamap" data-edit></div>
+  <button class="btn">Save search criteria</button>
+</form>

@@ -5,7 +5,7 @@ const express = require('express');
 const multer = require('multer');
 const { db, brandDir, docsDir, hashPassword, verifyPassword, createUser, createProperty } = require('./db');
 const mailer = require('./mailer');
-const { STAGES_BUYER, PHASES_BUYER, DEFAULT_MILESTONES_BUYER, STAGES, PHASES, STATUSES, PROPERTY_FIELDS, VENDOR_FIELDS, KINDS, label } = require('./kinds');
+const { STAGES_BUYER, PHASES_BUYER, STAGES, PHASES, STATUSES, PROPERTY_FIELDS, VENDOR_FIELDS, KINDS, label } = require('./kinds');
 
 const app = express();
 const PROD = process.env.NODE_ENV === 'production';
@@ -102,10 +102,23 @@ function throttled(key, minutes) {
 }
 // Sends in the background; a mail problem never breaks the page.
 function sendMail(res, mail) {
+  if (!mail.to) return;
+  const site = getSettings();
   mailer
-    .send({ fromName: res.locals.brand, color: res.locals.theme.primary || DEFAULT_COLOR, ...mail })
+    .send({ fromName: site.brand_name || BRAND, color: validColor(site.color_primary) || DEFAULT_COLOR, ...mail })
     .catch((err) => console.error('Email could not be sent:', err.message));
 }
+// People attached to a deal
+const peopleOf = (propertyId, access) =>
+  db
+    .prepare('SELECT u.id, u.name, u.email, u.phone, u.company FROM users u JOIN property_clients pc ON pc.user_id = u.id WHERE pc.property_id = ? AND pc.access = ? ORDER BY u.id')
+    .all(propertyId, access);
+const clientsOf = (propertyId) => peopleOf(propertyId, 'client');
+const lendersOf = (propertyId) => peopleOf(propertyId, 'lender');
+const firstName = (name) => String(name || '').split(' ')[0];
+// Web address for links in emails sent outside of a page request (scheduled reminders).
+const savedBase = () => (process.env.PUBLIC_URL || getSettings().site_url || '').replace(/\/$/, '');
+const mailTo = (people, mail) => people.forEach((u) => sendMail(null, { ...mail, to: u.email }));
 const logActivity = (propertyId, userId, kind) =>
   db.prepare('INSERT INTO activity (property_id, user_id, kind) VALUES (?,?,?)').run(propertyId, userId, kind);
 
@@ -151,7 +164,7 @@ function clientContact(p, logins) {
 }
 function loginsByProperty() {
   const map = {};
-  db.prepare('SELECT pc.property_id, u.name, u.email, u.phone FROM property_clients pc JOIN users u ON u.id = pc.user_id ORDER BY u.id')
+  db.prepare("SELECT pc.property_id, u.name, u.email, u.phone FROM property_clients pc JOIN users u ON u.id = pc.user_id WHERE pc.access = 'client' ORDER BY u.id")
     .all()
     .forEach((u) => (map[u.property_id] = map[u.property_id] || []).push(u));
   return map;
@@ -223,7 +236,7 @@ app.use((req, res, next) => {
   if (token) {
     const s = db.prepare('SELECT * FROM sessions WHERE token_hash = ?').get(sha(token));
     if (s && s.expires > Date.now()) {
-      req.user = db.prepare('SELECT id, name, email, phone, role FROM users WHERE id = ?').get(s.user_id);
+      req.user = db.prepare('SELECT id, name, email, phone, role, is_lender FROM users WHERE id = ?').get(s.user_id);
       req.sessionKey = s.token_hash;
       if (s.flash && req.method === 'GET') {
         res.locals.flash = s.flash;
@@ -351,11 +364,14 @@ app.get('/portal', requireUser, (req, res) => {
 });
 
 // The sale in the URL, but only if this person is allowed to see it.
-function accessibleProperty(req) {
+// Lenders are excluded unless a route asks for them: they only get the pre-approval page.
+function accessibleProperty(req, allowLender) {
   const p = db.prepare('SELECT * FROM properties WHERE id = ?').get(req.params.id);
-  const allowed =
-    p && (req.user.role === 'agent' || db.prepare('SELECT 1 FROM property_clients WHERE property_id = ? AND user_id = ?').get(p.id, req.user.id));
-  return allowed ? p : null;
+  if (!p) return null;
+  if (req.user.role === 'agent') return Object.assign(p, { access: 'agent' });
+  const link = db.prepare('SELECT access FROM property_clients WHERE property_id = ? AND user_id = ?').get(p.id, req.user.id);
+  if (!link || (link.access === 'lender' && !allowLender)) return null;
+  return Object.assign(p, { access: link.access });
 }
 const unreadCount = (propertyId, userId) =>
   db.prepare(
@@ -364,12 +380,13 @@ const unreadCount = (propertyId, userId) =>
   ).get(propertyId, userId, propertyId, userId).n;
 const listDocuments = (propertyId) => db.prepare('SELECT * FROM documents WHERE property_id = ? ORDER BY id DESC').all(propertyId);
 
-app.get('/p/:id', requireUser, (req, res) => {
-  const p = accessibleProperty(req);
+app.get('/p/:id', requireUser, (req, res, next) => {
+  const p = accessibleProperty(req, true);
   if (!p) return res.status(404).render('message', { title: 'Not found', message: 'We could not find that page.' });
+  if (p.access === 'lender') return buyer.lenderPage(req, res, p);
 
   // Remember client visits (once a day) and tell the agent when a past client comes back after closing.
-  if (req.user.role === 'client') {
+  if (p.access === 'client') {
     const seenToday = db
       .prepare("SELECT 1 FROM activity WHERE property_id = ? AND user_id = ? AND kind = 'visit' AND created_at >= datetime('now', '-1 day')")
       .get(p.id, req.user.id);
@@ -405,7 +422,8 @@ app.get('/p/:id', requireUser, (req, res) => {
   };
   const done = rows.milestones.filter((m) => m.status === 'done').length;
   const stages = stagesFor(p);
-  res.render('property', {
+  res.render(p.side === 'buyer' ? 'buyer' : 'property', {
+    ...(p.side === 'buyer' ? buyer.pageData(req, p) : {}),
     STAGES: stages, PHASES: p.side === 'buyer' ? PHASES_BUYER : PHASES,
     p, rows, stats,
     progress: { done, total: rows.milestones.length },
@@ -443,8 +461,9 @@ app.get('/p/:id/value', requireUser, (req, res) => {
 
 // Documents: only people with access to the sale can open them.
 app.get('/p/:id/docs/:docId', requireUser, (req, res) => {
-  const p = accessibleProperty(req);
-  const d = p && db.prepare('SELECT * FROM documents WHERE id = ? AND property_id = ?').get(req.params.docId, p.id);
+  const p = accessibleProperty(req, true);
+  let d = p && db.prepare('SELECT * FROM documents WHERE id = ? AND property_id = ?').get(req.params.docId, p.id);
+  if (d && p.access === 'lender' && d.category !== 'preapproval') d = null;
   if (!d) return res.status(404).render('message', { title: 'Not found', message: 'We could not find that document.' });
   const ext = extOf(d.filename);
   res.type(ext || 'application/octet-stream');
@@ -482,7 +501,7 @@ app.post('/p/:id/messages', requireUser, (req, res) => {
   const fromClient = req.user.role === 'client';
   const recipients = fromClient
     ? agents()
-    : db.prepare('SELECT u.name, u.email FROM users u JOIN property_clients pc ON pc.user_id = u.id WHERE pc.property_id = ?').all(p.id);
+    : clientsOf(p.id);
   for (const r of recipients) {
     if (throttled(`msg|${p.id}|${r.email}`, 2)) continue;
     sendMail(res, {
@@ -500,7 +519,8 @@ app.post('/p/:id/messages', requireUser, (req, res) => {
 // Trusted pros, visible to every signed-in client.
 const listVendors = () => db.prepare('SELECT * FROM vendors ORDER BY category COLLATE NOCASE, name COLLATE NOCASE').all();
 app.get('/vendors', requireUser, (req, res) => {
-  const home = db.prepare('SELECT property_id AS id FROM property_clients WHERE user_id = ? LIMIT 1').get(req.user.id);
+  const home = db.prepare("SELECT property_id AS id FROM property_clients WHERE user_id = ? AND access = 'client' LIMIT 1").get(req.user.id);
+  if (req.user.role !== 'agent' && !home) return res.status(404).render('message', { title: 'Not found', message: 'We could not find that page.' });
   res.render('vendors', { vendors: listVendors(), agent: db.prepare("SELECT name FROM users WHERE role = 'agent' ORDER BY id LIMIT 1").get(), back: home ? `/p/${home.id}` : '/' });
 });
 
@@ -639,15 +659,15 @@ app.get('/admin/p/:pid', requireAgent, loadProperty, (req, res) => {
     rows[kind] = db.prepare(`SELECT * FROM ${def.table} WHERE property_id = ? ORDER BY ${def.order}`).all(p.id);
   }
   const linked = db
-    .prepare('SELECT u.id, u.name, u.email FROM users u JOIN property_clients pc ON pc.user_id = u.id WHERE pc.property_id = ? ORDER BY u.name')
+    .prepare("SELECT u.id, u.name, u.email FROM users u JOIN property_clients pc ON pc.user_id = u.id WHERE pc.property_id = ? AND pc.access = 'client' ORDER BY u.name")
     .all(p.id);
   const others = db
-    .prepare("SELECT id, name, email FROM users WHERE role = 'client' AND id NOT IN (SELECT user_id FROM property_clients WHERE property_id = ?) ORDER BY name")
+    .prepare("SELECT id, name, email FROM users WHERE role = 'client' AND is_lender = 0 AND id NOT IN (SELECT user_id FROM property_clients WHERE property_id = ?) ORDER BY name")
     .all(p.id);
   const activity = db
     .prepare('SELECT a.kind, a.created_at, u.name FROM activity a JOIN users u ON u.id = a.user_id WHERE a.property_id = ? ORDER BY a.id DESC LIMIT 8')
     .all(p.id);
-  res.render('admin/property', { p, rows, linked, others, activity, KINDS, PROPERTY_FIELDS, helpers, documents: listDocuments(p.id), maxDocMB: MAX_DOC_MB });
+  res.render('admin/property', { ...(p.side === 'buyer' ? buyer.adminData(req, p) : {}), p, rows, linked, others, activity, KINDS, PROPERTY_FIELDS, helpers, documents: listDocuments(p.id), maxDocMB: MAX_DOC_MB });
 });
 
 app.post('/admin/p/:pid', requireAgent, loadProperty, (req, res) => {
@@ -655,7 +675,8 @@ app.post('/admin/p/:pid', requireAgent, loadProperty, (req, res) => {
   if (!v) { flash(req, 'The street address is required.'); return res.redirect(`/admin/p/${req.property.id}`); }
   const cols = Object.keys(v);
   db.prepare(`UPDATE properties SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`).run(...cols.map((c) => v[c]), req.property.id);
-  flash(req, 'Sale details saved.');
+  buyer.afterDealSaved(req.property.id);
+  flash(req, 'Deal details saved.');
   res.redirect(`/admin/p/${req.property.id}`);
 });
 
@@ -671,7 +692,7 @@ app.post('/admin/p/:pid/clients', requireAgent, loadProperty, (req, res) => {
   const back = `/admin/p/${req.property.id}#access`;
   let userId = Number(req.body.user_id) || null;
   if (userId) {
-    if (!db.prepare("SELECT 1 FROM users WHERE id = ? AND role = 'client'").get(userId)) return res.redirect(back);
+    if (!db.prepare("SELECT 1 FROM users WHERE id = ? AND role = 'client' AND is_lender = 0").get(userId)) return res.redirect(back);
   } else {
     const name = String(req.body.name || '').trim();
     const email = cleanEmail(req.body.email);
@@ -709,6 +730,19 @@ app.post('/admin/p/:pid/milestones/:id/toggle', requireAgent, loadProperty, (req
   res.redirect(`/admin/p/${req.property.id}#m${req.params.id}`);
 });
 
+// Stores uploaded files as documents on a deal and returns their display names.
+function saveDocuments(req, propertyId, category) {
+  const files = req.files || [];
+  const title = String(req.body.title || '').trim().slice(0, 200);
+  const ins = db.prepare('INSERT INTO documents (property_id, title, filename, original_name, size, category, uploaded_by) VALUES (?,?,?,?,?,?,?)');
+  return files.map((f) => {
+    const original = Buffer.from(f.originalname, 'latin1').toString('utf8');
+    const name = files.length === 1 && title ? title : path.parse(original).name;
+    ins.run(propertyId, name, f.filename, original, f.size, category, req.user.id);
+    return name;
+  });
+}
+
 // Documents for the client (contracts, reports, closing statement, ...).
 app.post(
   '/admin/p/:pid/documents', requireAgent, loadProperty,
@@ -716,10 +750,13 @@ app.post(
   (req, res) => {
     const files = req.files || [];
     const title = String(req.body.title || '').trim().slice(0, 200);
-    const ins = db.prepare('INSERT INTO documents (property_id, title, filename, original_name, size) VALUES (?,?,?,?,?)');
-    for (const f of files) {
-      const original = Buffer.from(f.originalname, 'latin1').toString('utf8');
-      ins.run(req.property.id, files.length === 1 && title ? title : path.parse(original).name, f.filename, original, f.size);
+    const names = saveDocuments(req, req.property.id, req.body.category === 'preapproval' ? 'preapproval' : null);
+    if (names.length) {
+      mailTo(clientsOf(req.property.id), {
+        subject: `New document: ${names[0]}${names.length > 1 ? ` and ${names.length - 1} more` : ''}`,
+        lines: [`${firstName(req.user.name)} added ${names.length === 1 ? 'a document' : names.length + ' documents'} to your portal: ${names.join(', ')}.`],
+        link: `${baseUrl(req)}/p/${req.property.id}#documents`, linkLabel: 'View it in your portal', replyTo: req.user.email,
+      });
     }
     flash(req, files.length ? `${files.length} document${files.length === 1 ? '' : 's'} uploaded.` : 'Nothing was uploaded. Use PDF, image, Word or Excel files.');
     res.redirect(`/admin/p/${req.property.id}#documents`);
@@ -735,10 +772,17 @@ app.post('/admin/p/:pid/documents/:id/delete', requireAgent, loadProperty, (req,
   res.redirect(`/admin/p/${req.property.id}#documents`);
 });
 
+const buyer = require('./buyer')({
+  app, db, helpers, today, addDays, num, flash, requireUser, requireAgent, loadProperty, accessibleProperty, readFields,
+  agents, clientsOf, lendersOf, firstName, baseUrl, savedBase, sendMail, mailTo, throttled, mailer, logActivity,
+  uploader, withUpload, saveDocuments, removeFile, docsDir, extOf, IMAGE_EXT, DOC_EXT, MAX_DOC_MB, INLINE_EXT,
+  createUser, cleanEmail, validEmail, listDocuments, stagesFor,
+});
+
 // Generic add / edit / delete for everything that hangs off a sale.
 function loadKind(req, res, next) {
   req.kind = Object.hasOwn(KINDS, req.params.kind) ? KINDS[req.params.kind] : null;
-  if (!req.kind) return res.status(404).send('Not found');
+  if (!req.kind || (req.kind.sides && !req.kind.sides.includes(req.property.side))) return res.status(404).send('Not found');
   next();
 }
 
@@ -754,6 +798,7 @@ app.post('/admin/p/:pid/:kind', requireAgent, loadProperty, loadKind, (req, res)
   db.prepare(`INSERT INTO ${req.kind.table} (property_id, ${cols.join(', ')}) VALUES (?, ${cols.map(() => '?').join(', ')})`).run(
     req.property.id, ...cols.map((c) => v[c])
   );
+  if (req.params.kind === 'buyoffers') buyer.offerSubmitted(req, req.property, v);
   res.redirect(back);
 });
 
@@ -763,6 +808,7 @@ app.post('/admin/p/:pid/:kind/:id', requireAgent, loadProperty, loadKind, (req, 
   if (!v) { flash(req, 'Please fill in the required fields.'); return res.redirect(back); }
   if ('sort' in v && v.sort == null) v.sort = 0;
   if (req.params.kind === 'milestones' && v.status === 'done' && !v.done_date) v.done_date = today();
+  if (req.params.kind === 'milestones' && req.body.notify) buyer.milestoneUpdated(req, req.property, v);
   const cols = Object.keys(v);
   db.prepare(`UPDATE ${req.kind.table} SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ? AND property_id = ?`).run(
     ...cols.map((c) => v[c]), req.params.id, req.property.id
@@ -852,7 +898,7 @@ app.post(
 
 // Client logins
 app.get('/admin/clients/:uid', requireAgent, (req, res) => {
-  const c = db.prepare("SELECT id, name, email, phone FROM users WHERE id = ? AND role = 'client'").get(req.params.uid);
+  const c = db.prepare("SELECT id, name, email, phone, company, is_lender FROM users WHERE id = ? AND role = 'client'").get(req.params.uid);
   if (!c) return res.redirect('/admin');
   res.render('admin/client', { c });
 });
@@ -888,8 +934,9 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
   res.status(500).send('Something went wrong. Please try again.');
 });
 
-setTimeout(emailDueFollowUps, 20000).unref();
-setInterval(emailDueFollowUps, 3600000).unref();
+const hourly = () => { emailDueFollowUps(); buyer.emailDueReminders(); };
+setTimeout(hourly, 20000).unref();
+setInterval(hourly, 3600000).unref();
 setInterval(() => db.prepare('DELETE FROM sessions WHERE expires < ?').run(Date.now()), 3600000).unref();
 
 const port = Number(process.env.PORT) || 3000;

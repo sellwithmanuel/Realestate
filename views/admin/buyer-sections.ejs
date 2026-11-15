@@ -1,0 +1,80 @@
+<%# Buyer-only editing sections on the agent's deal page. %>
+<section class="card" id="lender">
+  <h2>Lender</h2>
+  <p class="muted">The lender gets a limited login: they see the buyer’s contact info, offers out and key loan dates, and can upload pre-approval documents. Nothing else.</p>
+  <div class="list">
+  <% lenders.forEach(function (l) { %>
+    <div class="listrow">
+      <span><strong><%= l.name %></strong><small><%= [l.company, l.phone, l.email].filter(Boolean).join(' · ') %></small></span>
+      <span class="right rowactions"><a href="/admin/clients/<%= l.id %>">Edit / reset password</a>
+        <form method="post" action="/admin/p/<%= p.id %>/clients/<%= l.id %>/remove"><button class="link danger">Remove</button></form></span>
+    </div>
+  <% }) %>
+  </div>
+  <% if (preapprovals.length) { %>
+  <h3>Pre-approval documents</h3>
+  <ul class="docs"><% preapprovals.forEach(function (d) { %><li><a href="/p/<%= p.id %>/docs/<%= d.id %>" target="_blank" rel="noopener"><%= d.title %></a><small>Added <%= fdate(d.uploaded_at.slice(0, 10)) %></small></li><% }) %></ul>
+  <% } %>
+  <details class="add" <%= lenders.length ? '' : 'open' %>>
+    <summary>+ Create a login for a lender</summary>
+    <form method="post" action="/admin/p/<%= p.id %>/lender">
+      <div class="fields">
+        <label><span>Lender name *</span><input name="name" required></label>
+        <label><span>Company</span><input name="company"></label>
+        <label><span>Email *</span><input type="email" name="email" required></label>
+        <label><span>Phone</span><input type="tel" name="phone"></label>
+        <label class="wide"><span>Password * (8+ characters — you share it with them)</span><input name="password" minlength="8" autocomplete="off" required></label>
+      </div>
+      <button class="btn">Create lender login</button>
+    </form>
+  </details>
+  <% if (otherLenders.length) { %>
+  <details class="add">
+    <summary>+ Use a lender you already added</summary>
+    <form method="post" action="/admin/p/<%= p.id %>/lender">
+      <div class="fields"><label class="wide"><span>Lender</span><select name="user_id">
+        <% otherLenders.forEach(function (l) { %><option value="<%= l.id %>"><%= l.name %><%= l.company ? ' — ' + l.company : '' %></option><% }) %></select></label></div>
+      <button class="btn">Add to this deal</button>
+    </form>
+  </details>
+  <% } %>
+</section>
+
+<section class="card" id="criteria">
+  <h2>Search criteria</h2>
+  <p class="muted">You and your buyer can both change this. Whoever did not make the change gets an email.</p>
+  <%- include('../partials/criteria-form', { fromAdmin: true }) %>
+</section>
+
+<section class="card" id="homes">
+  <h2>Homes shared with the buyer</h2>
+  <p class="muted">They can like a home, pass on it (it leaves their portal after 24 hours), comment, or ask for a tour.</p>
+  <% homes.forEach(function (h) { %>
+  <div class="editrow">
+    <details>
+      <summary><%= h.address %><%= h.price ? ' — ' + money(h.price) : '' %>
+        <% if (h.reaction === 'like') { %><span class="pill ok">Liked</span><% } %>
+        <% if (h.reaction === 'dislike') { %><span class="pill alert"><%= h.gone ? 'Passed — hidden from buyer' : 'Passed — hides in ' + h.hoursLeft + 'h' %></span><% } %>
+        <% if (h.tour_date) { %><span class="pill">Tour <%= fdate(h.tour_date) %></span><% } else if (h.tour_requested_at) { %><span class="pill alert">Wants a tour</span><% } %>
+        <% if ((comments['home:' + h.id] || []).length) { %><span class="pill"><%= comments['home:' + h.id].length %> comment<%= comments['home:' + h.id].length === 1 ? '' : 's' %></span><% } %>
+      </summary>
+      <form method="post" action="/admin/p/<%= p.id %>/homes/<%= h.id %>" enctype="multipart/form-data">
+        <%- include('../partials/fields', { def: { fields: HOME_FIELDS.concat(TOUR_FIELDS) }, r: h }) %>
+        <label><span>Photo<%= h.photo ? ' (choose a file to replace the current one)' : '' %></span><input type="file" name="photo" accept=".png,.jpg,.jpeg,.webp,.gif"></label>
+        <p class="muted small">Setting a tour date emails the buyer.</p>
+        <button class="btn">Save</button>
+        <button class="link danger" formaction="/admin/p/<%= p.id %>/homes/<%= h.id %>/delete" formnovalidate onclick="return confirm('Remove this home?')">Delete</button>
+      </form>
+      <%- include('../partials/comments', { target: 'home', targetId: h.id, list: comments['home:' + h.id] || [], fromAdmin: true }) %>
+    </details>
+  </div>
+  <% }) %>
+  <details class="add" <%= homes.length ? '' : 'open' %>>
+    <summary>+ Share a home</summary>
+    <form method="post" action="/admin/p/<%= p.id %>/homes" enctype="multipart/form-data">
+      <%- include('../partials/fields', { def: { fields: HOME_FIELDS }, r: {} }) %>
+      <label><span>Photo</span><input type="file" name="photo" accept=".png,.jpg,.jpeg,.webp,.gif"></label>
+      <p></p><button class="btn">Share with the buyer</button>
+    </form>
+  </details>
+</section>

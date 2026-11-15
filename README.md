@@ -21,6 +21,23 @@ A private portal where each seller signs in and sees exactly where their home sa
 
 Under **Branding** the agent sets the main and accent colors, uploads a logo and headshot, and fills in contact info and an "about me". It applies to the whole portal immediately.
 
+## Buyer portal
+
+Deals where the agent represents the buyer get their own page:
+
+- **Lender & pre-approval:** the lender's contact info and the pre-approval documents
+- **Search criteria:** price, beds, baths, areas and a map of San Diego County where ZIP codes can be tapped on/off and exact areas drawn. Buyer and agent can both edit; the other is emailed
+- **Homes:** the agent shares homes (address, price, photo, listing link, note). The buyer can like, pass (it leaves their portal after 24 hours), comment, or request a tour
+- **Offers:** each offer the agent submits, with every counter and the final decision underneath
+- **Timeline:** buyer checklist from first conversation to keys, with inspection, appraisal and loan contingency dates, earnest money deposit (auto-set to 3 days after escrow opens), and expandable explanations
+- **Documents & reports:** inspection, termite and other reports, with comments
+
+**Lender login (limited):** created by the agent on a buyer deal. A lender sees only the buyer's and agent's contact info, offers out with the listing agent's contact, key loan dates, and can upload pre-approval documents.
+
+**Buyer-side emails:** buyer on counters/decisions, shared homes, tours, documents, criteria changes and (when ticked) timeline updates; lender on every offer submitted and accepted; buyer and/or lender the day before deadlines marked for a reminder; agent on likes, passes, comments, tour requests, criteria changes and lender uploads.
+
+Map data: `public/sd-zips.json` is simplified from US Census ZIP code tabulation areas; the map itself uses Leaflet and OpenStreetMap.
+
 ## What the agent sees
 
 - **Dashboard:** current listings, active buyers, deals in escrow, commission pending and earned this year

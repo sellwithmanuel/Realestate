@@ -43,32 +43,7 @@
 
   <section class="card" id="timeline">
     <h2>Your timeline</h2>
-    <% PHASES.forEach(function (ph) { var ms = rows.milestones.filter(function (m) { return m.phase === ph[0]; }); if (!ms.length) return;
-       var d = ms.filter(function (m) { return m.status === 'done'; }).length; %>
-    <h3><%= ph[1] %> <small><%= d %> of <%= ms.length %></small></h3>
-    <ol class="timeline">
-      <% ms.forEach(function (m) { %>
-      <li class="<%= m.status %>">
-        <i aria-hidden="true"><%= m.status === 'done' ? '✓' : '' %></i>
-        <div>
-          <strong><%= m.title %></strong>
-          <span class="when">
-            <% if (m.status === 'done') { %>Done<%= m.done_date ? ' ' + fdate(m.done_date) : '' %>
-            <% } else if (m.status === 'in_progress') { %>In progress<%= m.due_date ? ' · due ' + fdate(m.due_date) : '' %>
-            <% } else if (m.due_date) { %>Scheduled <%= fdate(m.due_date) %><% } %>
-          </span>
-          <% if (m.paid_by || m.vendor) { %>
-          <p class="meta">
-            <% if (m.paid_by) { %><span class="tag"><%= m.paid_by === 'Split' ? 'Split buyer / seller' : m.paid_by === 'Agent' ? 'Covered by your agent' : 'Paid by ' + m.paid_by.toLowerCase() %><%= m.cost ? ' · ' + money(m.cost) : '' %></span><% } %>
-            <% if (m.vendor) { %><span><%= m.vendor %></span><% } %>
-          </p>
-          <% } %>
-          <% if (m.notes) { %><p class="note"><%= m.notes %></p><% } %>
-        </div>
-      </li>
-      <% }) %>
-    </ol>
-    <% }) %>
+    <%- include('partials/timeline') %>
   </section>
 
   <% if (rows.offers.length) { %>

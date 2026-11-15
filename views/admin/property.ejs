@@ -6,7 +6,8 @@
 </div>
 <nav class="jump">
   <a href="#details">Details</a><a href="#access">Client access</a><a href="#messages">Messages</a><a href="#documents">Documents</a>
-  <% Object.keys(KINDS).forEach(function (k) { %><a href="#<%= k %>"><%= KINDS[k].title %></a><% }) %>
+  <% if (p.side === 'buyer') { %><a href="#lender">Lender</a><a href="#criteria">Search criteria</a><a href="#homes">Homes</a><% } %>
+  <% Object.keys(KINDS).forEach(function (k) { if (KINDS[k].sides && KINDS[k].sides.indexOf(p.side) < 0) return; %><a href="#<%= k %>"><%= KINDS[k].title %></a><% }) %>
 </nav>
 
 <section class="card" id="details">
@@ -20,7 +21,6 @@
 <section class="card" id="access">
   <h2>Client access</h2>
   <p class="muted">Each client signs in with their email and the password you set here. They only see this sale.</p>
-  <% if (p.side === 'buyer') { %><p class="flash err">The client portal was designed for sellers. A buyer who logs in will see this deal’s timeline, documents and chat, but some wording is still seller-oriented.</p><% } %>
   <div class="list">
   <% linked.forEach(function (c) { %>
     <div class="listrow">
@@ -82,7 +82,8 @@
   <div class="list">
   <% documents.forEach(function (d) { %>
     <div class="listrow">
-      <span><a href="/p/<%= p.id %>/docs/<%= d.id %>" target="_blank" rel="noopener"><strong><%= d.title %></strong></a><small><%= d.original_name %> · added <%= fdate(d.uploaded_at.slice(0, 10)) %></small></span>
+      <span><a href="/p/<%= p.id %>/docs/<%= d.id %>" target="_blank" rel="noopener"><strong><%= d.title %></strong></a><small><%= d.original_name %> · added <%= fdate(d.uploaded_at.slice(0, 10)) %><%= d.category === 'preapproval' ? ' · pre-approval' : '' %></small>
+        <% if (p.side === 'buyer') { %><%- include('../partials/comments', { target: 'doc', targetId: d.id, list: comments['doc:' + d.id] || [], fromAdmin: true }) %><% } %></span>
       <form method="post" action="/admin/p/<%= p.id %>/documents/<%= d.id %>/delete" onsubmit="return confirm('Delete this document?')"><button class="link danger">Delete</button></form>
     </div>
   <% }) %>
@@ -92,14 +93,17 @@
     <form method="post" action="/admin/p/<%= p.id %>/documents" enctype="multipart/form-data">
       <div class="fields">
         <label class="wide"><span>Files * (PDF, images, Word or Excel — up to <%= maxDocMB %> MB each, 10 at a time)</span><input type="file" name="files" multiple required accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.heic,.doc,.docx,.xls,.xlsx,.csv,.txt"></label>
-        <label class="wide"><span>Name shown to the client (optional, when uploading one file)</span><input name="title" placeholder="e.g. Final closing statement"></label>
+        <label class="wide"><span>Name shown to the client (optional, when uploading one file)</span><input name="title" placeholder="<%= p.side === 'buyer' ? 'e.g. Home inspection report' : 'e.g. Final closing statement' %>"></label>
+        <% if (p.side === 'buyer') { %><label class="wide"><span>Type</span><select name="category"><option value="">Report or other document</option><option value="preapproval">Pre-approval (the lender can see it too)</option></select></label><% } %>
       </div>
       <button class="btn">Upload</button>
     </form>
   </details>
 </section>
 
-<% Object.keys(KINDS).forEach(function (kind) { var def = KINDS[kind]; %>
+<% if (p.side === 'buyer') { %><%- include('buyer-sections') %><% } %>
+
+<% Object.keys(KINDS).forEach(function (kind) { var def = KINDS[kind]; if (def.sides && def.sides.indexOf(p.side) < 0) return; %>
 <section class="card" id="<%= kind %>">
   <h2><%= def.title %></h2>
   <% if (!rows[kind].length) { %><p class="muted">Nothing here yet.</p><% } %>
@@ -114,9 +118,30 @@
       <summary><%= def.summary(r, helpers) %></summary>
       <form method="post" action="/admin/p/<%= p.id %>/<%= kind %>/<%= r.id %>">
         <%- include('../partials/fields', { def: def, r: r }) %>
+        <% if (kind === 'milestones') { %><p class="checkline"><input type="checkbox" name="notify" value="1" id="notify<%= r.id %>"> <label for="notify<%= r.id %>">Email my client about this (date, time, who, and the note)</label></p><% } %>
         <button class="btn">Save</button>
         <button class="link danger" formaction="/admin/p/<%= p.id %>/<%= kind %>/<%= r.id %>/delete" formnovalidate onclick="return confirm('Delete this <%= def.singular %>?')">Delete</button>
       </form>
+      <% if (kind === 'buyoffers') { var ev = eventsByOffer[r.id] || []; %>
+      <div class="events">
+        <h3>Counters & decisions</h3>
+        <% ev.forEach(function (e) { %>
+        <form method="post" action="/admin/p/<%= p.id %>/offers/<%= r.id %>/events/<%= e.id %>/delete" class="eventrow">
+          <span><strong><%= e.label %></strong> · <%= fdate(e.date) %><%= e.price ? ' · ' + money(e.price) : '' %><%= e.terms ? ' — ' + e.terms : '' %></span>
+          <button class="link danger">Delete</button>
+        </form>
+        <% }) %>
+        <form method="post" action="/admin/p/<%= p.id %>/offers/<%= r.id %>/events">
+          <div class="fields">
+            <label><span>What happened</span><select name="kind"><% OFFER_EVENTS.forEach(function (o) { %><option value="<%= o[0] %>"><%= o[1] %></option><% }) %></select></label>
+            <label><span>Date</span><input type="date" name="date" value="<%= today %>"></label>
+            <label><span>Price (if it changed)</span><input type="number" name="price" min="0" step="1" placeholder="$"></label>
+            <label class="wide"><span>Terms / details for the buyer</span><textarea name="terms" rows="2"></textarea></label>
+          </div>
+          <button class="btn ghost">Add — this emails the buyer</button>
+        </form>
+      </div>
+      <% } %>
     </details>
   </div>
   <% }) %>
@@ -135,4 +160,6 @@
 </form>
 <script>document.querySelectorAll('.activity time').forEach(function (t) { t.textContent = '· ' + new Date(t.dateTime).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); });</script>
 <script src="/chat.js"></script>
+<% if (p.side === 'buyer') { %><link rel="stylesheet" href="/vendor/leaflet.css"><link rel="stylesheet" href="/vendor/leaflet.draw.css">
+<script src="/vendor/leaflet.js"></script><script src="/vendor/leaflet.draw.js"></script><script src="/areas.js"></script><% } %>
 <%- include('../partials/foot') %>

@@ -1,0 +1,239 @@
+<%- include('partials/head', { title: p.address }) %>
+<link rel="stylesheet" href="/vendor/leaflet.css"><link rel="stylesheet" href="/vendor/leaflet.draw.css">
+<% var isAgent = user.role === 'agent';
+   var agentFirst = agent ? agent.name.split(' ')[0] : 'your agent';
+   var inEscrow = p.stage === 'escrow' || p.stage === 'closed';
+   var liked = homes.filter(function (h) { return h.reaction === 'like'; }).length;
+   var offers = rows.buyoffers;
+   var hasCriteria = ['price_min', 'price_max', 'beds', 'baths', 'types', 'areas', 'zips', 'must'].some(function (k) { return criteria[k]; }) || criteria.shapes; %>
+<% if (isAgent) { %><p class="preview">You are previewing the buyer’s view. <a href="/admin/p/<%= p.id %>">Back to editing</a></p><% } %>
+
+<section class="hero">
+  <span class="pill light"><%= label(STAGES, p.stage) %></span>
+  <h1><%= p.address %></h1>
+  <% if (fullCity(p)) { %><p class="sub"><%= fullCity(p) %></p><% } %>
+  <% if (p.headline) { %><p class="headline"><%= p.headline %></p><% } %>
+  <ol class="stages" aria-label="Progress">
+    <% STAGES.forEach(function (s, i) { %>
+    <li class="<%= i < stageIndex ? 'past' : i === stageIndex ? 'now' : '' %>" <%= i === stageIndex ? 'aria-current="step"' : '' %>><i></i><span><%= s[1] %></span></li>
+    <% }) %>
+  </ol>
+</section>
+
+<section class="stats">
+  <% if (inEscrow) { %>
+  <% if (p.sale_price) { %><div><b><%= money(p.sale_price) %></b><span>purchase price</span></div><% } %>
+  <% if (stats.daysToClose != null && stats.daysToClose >= 0) { %><div><b><%= stats.daysToClose %></b><span>day<%= stats.daysToClose === 1 ? '' : 's' %> until keys</span></div><% } %>
+  <div><b><%= progress.done %><em>/<%= progress.total %></em></b><span>steps complete</span></div>
+  <% } else { %>
+  <% if (p.preapproval_amount) { %><div><b><%= money(p.preapproval_amount) %></b><span>pre-approved up to</span></div><% } %>
+  <div><b><%= homes.length %></b><span>home<%= homes.length === 1 ? '' : 's' %> to review</span></div>
+  <div><b><%= liked %></b><span>liked</span></div>
+  <div><b><%= offers.length %></b><span>offer<%= offers.length === 1 ? '' : 's' %> submitted</span></div>
+  <% } %>
+</section>
+
+<div class="cols">
+<div class="maincol">
+
+  <% if (nextUp.length) { %>
+  <section class="card">
+    <h2>What’s next</h2>
+    <ul class="next">
+      <% nextUp.forEach(function (m) { %>
+      <li><strong><%= m.title %></strong><span class="muted"><%= m.due_date ? fdate(m.due_date) + (m.due_time ? ' at ' + ftime(m.due_time) : '') : m.status === 'in_progress' ? 'In progress' : 'Coming up' %></span></li>
+      <% }) %>
+    </ul>
+  </section>
+  <% } %>
+
+  <% if (homes.length) { %>
+  <details class="card sec" id="homes" <%= inEscrow ? '' : 'open' %>>
+    <summary><h2>Homes for you</h2><small><%= homes.length %></small></summary>
+    <div class="homes">
+      <% homes.forEach(function (h) { %>
+      <article class="home <%= h.reaction || '' %>" id="home<%= h.id %>">
+        <% if (h.photo) { %><img src="/p/<%= p.id %>/homes/<%= h.id %>/photo" alt="" loading="lazy"><% } else { %><div class="nophoto" aria-hidden="true"></div><% } %>
+        <div class="hbody">
+          <div class="hprice"><b><%= money(h.price) || 'Price on request' %></b>
+            <span class="muted"><%= [h.beds && h.beds + ' bd', h.baths && h.baths + ' ba', h.sqft && Number(h.sqft).toLocaleString('en-US') + ' sq ft'].filter(Boolean).join(' · ') %></span></div>
+          <strong><%= h.address %></strong>
+          <% if (h.city) { %><span class="muted"><%= h.city %></span><% } %>
+          <% if (h.note) { %><p class="note agentnote"><b><%= agentFirst %>:</b> <%= h.note %></p><% } %>
+          <% if (h.tour_date) { %><p class="pill ok">Tour <%= fdate(h.tour_date) %><%= h.tour_time ? ' at ' + ftime(h.tour_time) : '' %></p>
+          <% } else if (h.tour_requested_at) { %><p class="pill">Tour requested</p><% } %>
+          <% if (h.reaction === 'dislike') { %><p class="muted small">Comes off your list in <%= h.hoursLeft %> hour<%= h.hoursLeft === 1 ? '' : 's' %>.</p><% } %>
+          <% if (!isAgent) { %>
+          <div class="hactions">
+            <form method="post" action="/p/<%= p.id %>/homes/<%= h.id %>/react">
+              <button class="react <%= h.reaction === 'like' ? 'on' : '' %>" name="reaction" value="<%= h.reaction === 'like' ? '' : 'like' %>" aria-pressed="<%= h.reaction === 'like' %>">👍 Like</button>
+              <button class="react <%= h.reaction === 'dislike' ? 'on no' : '' %>" name="reaction" value="<%= h.reaction === 'dislike' ? '' : 'dislike' %>" aria-pressed="<%= h.reaction === 'dislike' %>"><%= h.reaction === 'dislike' ? 'Undo' : '👎 Not for me' %></button>
+            </form>
+            <% if (!h.tour_requested_at && !h.tour_date && h.reaction !== 'dislike') { %>
+            <form method="post" action="/p/<%= p.id %>/homes/<%= h.id %>/tour"><button class="btn">I want to schedule a tour</button></form>
+            <% } %>
+          </div>
+          <% } %>
+          <% if (h.url) { %><a href="<%= h.url %>" target="_blank" rel="noopener noreferrer">View the listing →</a><% } %>
+          <%- include('partials/comments', { target: 'home', targetId: h.id, list: comments['home:' + h.id] || [], fromAdmin: false }) %>
+        </div>
+      </article>
+      <% }) %>
+    </div>
+  </details>
+  <% } %>
+
+  <% if (offers.length) { %>
+  <details class="card sec" id="offers" open>
+    <summary><h2>Your offers</h2><small><%= offers.length %></small></summary>
+    <% offers.forEach(function (o) { var ev = eventsByOffer[o.id] || []; %>
+    <article class="offer <%= o.status === 'Accepted' ? 'accepted' : '' %>">
+      <header><div><strong><%= o.address || 'Offer' %></strong></div><span class="pill <%= o.status === 'Accepted' ? 'ok' : '' %>"><%= o.status %></span></header>
+      <div class="ostep ours">
+        <small>Our offer · <%= fdate(o.received_date) %></small>
+        <b class="price"><%= money(o.price) %></b>
+        <details class="terms"><summary>Terms</summary>
+          <dl>
+            <% if (o.financing) { %><div><dt>Financing</dt><dd><%= o.financing %></dd></div><% } %>
+            <% if (o.down_payment) { %><div><dt>Down payment</dt><dd><%= o.down_payment %></dd></div><% } %>
+            <% if (o.deposit) { %><div><dt>Earnest deposit</dt><dd><%= money(o.deposit) %></dd></div><% } %>
+            <% if (o.escrow_days) { %><div><dt>Escrow length</dt><dd><%= o.escrow_days %> days</dd></div><% } %>
+            <% if (o.credits) { %><div><dt>Credits requested</dt><dd><%= o.credits %></dd></div><% } %>
+            <% if (o.expires) { %><div><dt>Expires</dt><dd><%= fdate(o.expires) %></dd></div><% } %>
+          </dl>
+          <% if (o.contingencies) { %><p class="note"><b>Contingencies:</b> <%= o.contingencies %></p><% } %>
+        </details>
+      </div>
+      <% ev.forEach(function (e) { %>
+      <div class="ostep <%= e.kind === 'counter_seller' || e.kind === 'declined' ? 'theirs' : e.kind === 'accepted' ? 'good' : 'ours' %>">
+        <small><%= e.label %> · <%= fdate(e.date) %></small>
+        <% if (e.price) { %><b class="price"><%= money(e.price) %></b><% } %>
+        <% if (e.terms) { %><p class="note"><%= e.terms %></p><% } %>
+      </div>
+      <% }) %>
+      <% if (o.notes) { %><p class="note agentnote"><b><%= agentFirst %>:</b> <%= o.notes %></p><% } %>
+    </article>
+    <% }) %>
+  </details>
+  <% } %>
+
+  <details class="card sec" id="timeline" <%= inEscrow || (!homes.length && !offers.length) ? 'open' : '' %>>
+    <summary><h2>Your timeline</h2><small><%= progress.done %> of <%= progress.total %></small></summary>
+    <%- include('partials/timeline') %>
+  </details>
+
+  <details class="card sec" id="criteria" <%= inEscrow ? '' : 'open' %>>
+    <summary><h2>What you’re looking for</h2></summary>
+    <% if (hasCriteria) { %>
+    <p class="chips">
+      <% if (criteria.price_min || criteria.price_max) { %><span><%= criteria.price_min ? money(criteria.price_min) : 'Any' %> – <%= criteria.price_max ? money(criteria.price_max) : 'any' %></span><% } %>
+      <% if (criteria.beds) { %><span><%= criteria.beds %>+ beds</span><% } %>
+      <% if (criteria.baths) { %><span><%= criteria.baths %>+ baths</span><% } %>
+      <% if (criteria.types) { %><span><%= criteria.types %></span><% } %>
+      <% if (criteria.areas) { %><span><%= criteria.areas %></span><% } %>
+      <% (criteria.zips || '').split(', ').filter(Boolean).forEach(function (z) { %><span><%= z %></span><% }) %>
+    </p>
+    <% if (criteria.must) { %><p class="note"><b>Must-haves:</b> <%= criteria.must %></p><% } %>
+    <% if (criteria.zips || criteria.shapes) { %><div class="areamap" data-zips="<%= criteria.zips || '' %>" data-shapes="<%= criteria.shapes ? JSON.stringify(criteria.shapes) : '' %>"></div><% } %>
+    <% } else { %><p class="muted">Tell us your price range, bedrooms and where you want to live.</p><% } %>
+    <details class="add" <%= hasCriteria ? '' : 'open' %>>
+      <summary><%= hasCriteria ? 'Change my search criteria' : 'Set my search criteria' %></summary>
+      <%- include('partials/criteria-form', { fromAdmin: false }) %>
+    </details>
+  </details>
+
+  <% var docs = documents.filter(function (d) { return d.category !== 'preapproval'; }); if (docs.length) { %>
+  <details class="card sec" id="documents" open>
+    <summary><h2>Documents & reports</h2><small><%= docs.length %></small></summary>
+    <ul class="docs">
+      <% docs.forEach(function (d) { %>
+      <li id="doc<%= d.id %>"><a href="/p/<%= p.id %>/docs/<%= d.id %>" target="_blank" rel="noopener"><%= d.title %></a><small>Added <%= fdate(d.uploaded_at.slice(0, 10)) %></small>
+        <%- include('partials/comments', { target: 'doc', targetId: d.id, list: comments['doc:' + d.id] || [], fromAdmin: false }) %></li>
+      <% }) %>
+    </ul>
+  </details>
+  <% } %>
+</div>
+
+<aside class="sidecol">
+  <% if (agent) { %>
+  <section class="card agentcard" id="agent">
+    <div class="agenttop">
+      <% if (site.headshot) { %><img src="/brand/<%= site.headshot %>" alt="<%= agent.name %>"><% } %>
+      <div><small>Your agent</small><strong><%= agent.name %></strong>
+        <% if (site.title) { %><span class="muted"><%= site.title %></span><% } %></div>
+    </div>
+    <span class="links"><% if (agent.phone) { %><a href="<%= telHref(agent.phone) %>"><%= agent.phone %></a><% } %><a href="mailto:<%= agent.email %>"><%= agent.email %></a></span>
+    <% if (!isAgent) { %><button type="button" class="btn full" data-chat-open>Message <%= agentFirst %></button><% } %>
+  </section>
+  <% } %>
+
+  <section class="card" id="lender">
+    <h2>Your lender</h2>
+    <% if (!lenders.length) { %><p class="muted">We’ll connect you with a lender to get pre-approved.</p><% } %>
+    <ul class="team">
+      <% lenders.forEach(function (l) { %>
+      <li><strong><%= l.name %></strong><% if (l.company) { %><span class="muted"><%= l.company %></span><% } %>
+        <span class="links"><% if (l.phone) { %><a href="<%= telHref(l.phone) %>"><%= l.phone %></a><% } %><a href="mailto:<%= l.email %>"><%= l.email %></a></span></li>
+      <% }) %>
+    </ul>
+    <h3>Pre-approval</h3>
+    <% if (!preapprovals.length) { %><p class="muted">Waiting on your pre-approval letter.</p><% } %>
+    <ul class="docs">
+      <% preapprovals.forEach(function (d) { %><li><a href="/p/<%= p.id %>/docs/<%= d.id %>" target="_blank" rel="noopener"><%= d.title %></a><small>Added <%= fdate(d.uploaded_at.slice(0, 10)) %></small></li><% }) %>
+    </ul>
+  </section>
+
+  <% if (rows.updates.length) { %>
+  <section class="card">
+    <h2>Latest from <%= agentFirst %></h2>
+    <ul class="updates">
+      <% rows.updates.slice(0, 4).forEach(function (u) { %><li><time><%= fdate(u.date) %></time><p class="note"><%= u.message %></p></li><% }) %>
+    </ul>
+  </section>
+  <% } %>
+
+  <% if (p.escrow_company || p.closing_date || p.escrow_opened) { %>
+  <section class="card" id="escrow">
+    <h2>Escrow</h2>
+    <dl class="kv">
+      <% if (p.escrow_company) { %><div><dt>Escrow company</dt><dd><%= p.escrow_company %></dd></div><% } %>
+      <% if (p.escrow_number) { %><div><dt>Escrow #</dt><dd><%= p.escrow_number %></dd></div><% } %>
+      <% if (p.escrow_opened) { %><div><dt>Opened</dt><dd><%= fdate(p.escrow_opened) %></dd></div><% } %>
+      <% if (p.emd_amount || emdDue) { %><div><dt>Earnest money deposit</dt><dd><%= money(p.emd_amount) %><%= emdDue ? (p.emd_amount ? ' · ' : '') + 'due ' + fdate(emdDue) : '' %></dd></div><% } %>
+      <% if (p.closing_date) { %><div><dt>Closing date</dt><dd><strong><%= fdate(p.closing_date) %></strong></dd></div><% } %>
+    </dl>
+    <details class="warn"><summary>Before you wire any money</summary>
+      <p class="note">Wire fraud is real. Always call escrow at a phone number you already trust to confirm wiring instructions. Never rely on instructions that arrive by email, even if they look like they came from us.</p></details>
+  </section>
+  <% } %>
+
+  <% if (rows.contacts.length) { %>
+  <section class="card" id="team">
+    <h2>Your team</h2>
+    <ul class="team">
+      <% rows.contacts.forEach(function (c) { %>
+      <li><small><%= c.role %></small><strong><%= c.name %></strong><% if (c.company) { %><span class="muted"><%= c.company %></span><% } %>
+        <span class="links"><% if (c.phone) { %><a href="<%= telHref(c.phone) %>"><%= c.phone %></a><% } %><% if (c.email) { %><a href="mailto:<%= c.email %>"><%= c.email %></a><% } %></span></li>
+      <% }) %>
+    </ul>
+  </section>
+  <% } %>
+
+  <% if (hasVendors) { %><p><a class="btn ghost full" href="/vendors">Trusted pros I recommend →</a></p><% } %>
+</aside>
+</div>
+
+<% if (!isAgent) { %>
+<div id="chat" class="chat floating" data-url="/p/<%= p.id %>/messages">
+  <button type="button" class="chatbtn" data-chat-open aria-expanded="false">Chat with <%= agentFirst %><% if (unread) { %><b class="badge"><%= unread %></b><% } %></button>
+  <div class="chatpanel" hidden>
+    <header><strong>Chat with <%= agentFirst %></strong><button type="button" class="link" data-chat-close aria-label="Close chat">Close</button></header>
+    <div class="chatlist" aria-live="polite"><p class="empty muted">Ask a question any time.</p></div>
+    <form><textarea name="body" rows="2" maxlength="2000" placeholder="Write a message…" required aria-label="Message"></textarea><button class="btn">Send</button></form>
+  </div>
+</div>
+<script src="/chat.js"></script>
+<% } %>
+<script src="/vendor/leaflet.js"></script><script src="/vendor/leaflet.draw.js"></script><script src="/areas.js"></script>
+<%- include('partials/foot') %>

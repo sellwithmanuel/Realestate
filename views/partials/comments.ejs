@@ -1,0 +1,13 @@
+<%# locals: p, target ('home' | 'doc'), targetId, list, fromAdmin %>
+<details class="comments" <%= list.length ? 'open' : '' %>>
+  <summary><%= list.length ? list.length + ' comment' + (list.length === 1 ? '' : 's') : 'Add a comment' %></summary>
+  <% list.forEach(function (c) { %>
+  <p class="comment <%= c.user_id === user.id ? 'mine' : '' %>"><small><%= c.user_id === user.id ? 'You' : c.name %></small><%= c.body %></p>
+  <% }) %>
+  <form method="post" action="/p/<%= p.id %>/comments" class="commentform">
+    <input type="hidden" name="target" value="<%= target %>"><input type="hidden" name="target_id" value="<%= targetId %>">
+    <% if (fromAdmin) { %><input type="hidden" name="from" value="admin"><% } %>
+    <input name="body" maxlength="2000" placeholder="Write a comment…" required aria-label="Comment">
+    <button class="btn ghost">Post</button>
+  </form>
+</details>

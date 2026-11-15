@@ -134,8 +134,8 @@ CREATE TABLE IF NOT EXISTS followup_log (
   PRIMARY KEY (property_id, key)
 );
 `);
-const hasColumn = (name) => !!db.prepare("SELECT 1 FROM pragma_table_info('properties') WHERE name = ?").get(name);
-const addColumn = (name, type) => { if (!hasColumn(name)) db.exec(`ALTER TABLE properties ADD COLUMN ${name} ${type}`); };
+const hasColumn = (name, table = 'properties') => !!db.prepare('SELECT 1 FROM pragma_table_info(?) WHERE name = ?').get(table, name);
+const addColumn = (name, type, table = 'properties') => { if (!hasColumn(name, table)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`); };
 addColumn('value_url', 'TEXT');
 if (!hasColumn('zip')) {
   db.exec('ALTER TABLE properties ADD COLUMN zip TEXT');
@@ -153,6 +153,47 @@ addColumn('commission_pct', 'REAL');
 addColumn('split_pct', 'REAL');
 addColumn('referral_pct', 'REAL');
 addColumn('commission_fees', 'REAL');
+
+// Buyer portal
+db.exec(`
+CREATE TABLE IF NOT EXISTS offer_events (
+  id INTEGER PRIMARY KEY,
+  offer_id INTEGER NOT NULL REFERENCES offers(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL, date TEXT, price REAL, terms TEXT
+);
+CREATE TABLE IF NOT EXISTS homes (
+  id INTEGER PRIMARY KEY,
+  property_id INTEGER NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  address TEXT NOT NULL, city TEXT, price REAL, beds REAL, baths REAL, sqft INTEGER,
+  url TEXT, photo TEXT, note TEXT,
+  reaction TEXT, reacted_at TEXT, tour_requested_at TEXT, tour_date TEXT, tour_time TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS comments (
+  id INTEGER PRIMARY KEY,
+  property_id INTEGER NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  target TEXT NOT NULL, target_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+`);
+addColumn('criteria', 'TEXT');
+addColumn('emd_amount', 'REAL');
+addColumn('preapproval_amount', 'REAL');
+addColumn('company', 'TEXT', 'users');
+addColumn('is_lender', 'INTEGER NOT NULL DEFAULT 0', 'users');
+addColumn('access', "TEXT NOT NULL DEFAULT 'client'", 'property_clients');
+addColumn('category', 'TEXT', 'documents');
+addColumn('uploaded_by', 'INTEGER', 'documents');
+addColumn('due_time', 'TEXT', 'milestones');
+addColumn('vendor_contact', 'TEXT', 'milestones');
+addColumn('alert', 'TEXT', 'milestones');
+addColumn('reminded_for', 'TEXT', 'milestones');
+addColumn('address', 'TEXT', 'offers');
+addColumn('listing_agent', 'TEXT', 'offers');
+addColumn('listing_agent_phone', 'TEXT', 'offers');
+addColumn('listing_agent_email', 'TEXT', 'offers');
 
 const brandDir = path.join(dir, 'uploads', 'brand');
 const docsDir = path.join(dir, 'uploads', 'docs');
@@ -173,10 +214,10 @@ function verifyPassword(password, stored) {
   return crypto.timingSafeEqual(actual, expected);
 }
 
-function createUser({ name, email, phone, password, role }) {
+function createUser({ name, email, phone, password, role, company, isLender }) {
   const info = db
-    .prepare('INSERT INTO users (name, email, phone, password_hash, role) VALUES (?,?,?,?,?)')
-    .run(name, email, phone || null, hashPassword(password), role);
+    .prepare('INSERT INTO users (name, email, phone, password_hash, role, company, is_lender) VALUES (?,?,?,?,?,?,?)')
+    .run(name, email, phone || null, hashPassword(password), role, company || null, isLender ? 1 : 0);
   return info.lastInsertRowid;
 }
 
@@ -185,8 +226,10 @@ const createProperty = db.transaction((address, city, zip, side) => {
   const id = db
     .prepare('INSERT INTO properties (address, city, zip, side) VALUES (?,?,?,?)')
     .run(address, city || null, zip || null, side).lastInsertRowid;
-  const ins = db.prepare('INSERT INTO milestones (property_id, phase, title, paid_by, sort) VALUES (?,?,?,?,?)');
-  (side === 'buyer' ? DEFAULT_MILESTONES_BUYER : DEFAULT_MILESTONES).forEach(([phase, title, paidBy], i) => ins.run(id, phase, title, paidBy, (i + 1) * 10));
+  const ins = db.prepare('INSERT INTO milestones (property_id, phase, title, paid_by, sort, alert, notes) VALUES (?,?,?,?,?,?,?)');
+  (side === 'buyer' ? DEFAULT_MILESTONES_BUYER : DEFAULT_MILESTONES).forEach(([phase, title, paidBy, extra], i) =>
+    ins.run(id, phase, title, paidBy, (i + 1) * 10, (extra && extra.alert) || '', (extra && extra.notes) || null)
+  );
   return id;
 });
 

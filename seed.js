@@ -16,7 +16,7 @@ createUser({ name: 'Demo Agent', email: 'agent@example.com', phone: '(555) 010-2
 const client = createUser({ name: 'Jordan Sample', email: 'client@example.com', password: 'demo-client-123', role: 'client' });
 
 const pid = createProperty('1234 Sample Street', 'Anytown, CA', '90001', 'seller');
-db.prepare('INSERT INTO property_clients VALUES (?,?)').run(pid, client);
+db.prepare('INSERT INTO property_clients (property_id, user_id) VALUES (?,?)').run(pid, client);
 db.prepare(
   `UPDATE properties SET stage='escrow', list_price=1250000, sale_price=1285000, list_date=?, mls_number='SAMPLE123',
    escrow_company='Sample Escrow Co.', escrow_number='00-12345', escrow_opened=?, closing_date=?,
@@ -88,13 +88,40 @@ const deal = (side, address, zip, fields) => {
   const cols = Object.keys(fields);
   db.prepare(`UPDATE properties SET ${cols.map((c) => c + ' = ?').join(', ')} WHERE id = ?`).run(...cols.map((c) => fields[c]), id);
   if (fields.stage === 'closed') db.prepare("UPDATE milestones SET status = 'done' WHERE property_id = ?").run(id);
+  return id;
 };
 deal('seller', '88 Example Avenue', '90001', { stage: 'active', list_price: 899000, list_date: day(-9), client_name: 'Avery Sample', client_phone: '(555) 010-3002', client_email: 'avery@example.com' });
 deal('seller', '5 Demo Court', '90002', { stage: 'prep', list_price: 1650000, client_name: 'Quinn Sample', client_phone: '(555) 010-3003' });
 deal('seller', '410 Placeholder Lane', '90002', { stage: 'closed', list_price: 975000, sale_price: 990000, escrow_opened: day(-62), closing_date: day(-31), client_name: 'Drew & Sky Sample', client_phone: '(555) 010-3004', client_email: 'drew@example.com' });
 deal('seller', '72 Mockingbird Way', '90001', { stage: 'closed', list_price: 1400000, sale_price: 1380000, escrow_opened: day(-392), closing_date: day(-355), client_name: 'Reese Sample', client_email: 'reese@example.com', referral_pct: 25 });
-deal('buyer', '19 Sample Hill Road', '90003', { stage: 'escrow', sale_price: 1120000, escrow_opened: day(-12), closing_date: day(18), client_name: 'Parker Sample', client_phone: '(555) 010-3005', client_email: 'parker@example.com' });
-deal('buyer', 'Searching in Anytown', '90003', { stage: 'active', client_name: 'Emerson Sample', client_phone: '(555) 010-3006' });
+const escrowBuy = deal('buyer', '19 Sample Hill Road', '90003', { stage: 'escrow', sale_price: 1120000, escrow_opened: day(-12), closing_date: day(18), client_name: 'Parker Sample', client_phone: '(555) 010-3005', client_email: 'parker@example.com' });
+const searchBuy = deal('buyer', 'Emerson’s home search', '', {
+  stage: 'offers', client_name: 'Emerson Sample', client_phone: '(555) 010-3006', client_email: 'buyer@example.com', preapproval_amount: 950000,
+  headline: 'We have one offer out and two more homes worth a look.',
+  criteria: JSON.stringify({ price_min: '700000', price_max: '950000', beds: '3', baths: '2', types: 'House or townhome', areas: 'North Park, Kensington', zips: '92104, 92116', must: 'Garage, small yard', notes: '', shapes: null }),
+});
+const buyerUser = createUser({ name: 'Emerson Sample', email: 'buyer@example.com', phone: '(555) 010-3006', password: 'demo-buyer-123', role: 'client' });
+const lenderUser = createUser({ name: 'Lee Example', email: 'lender@example.com', phone: '(555) 010-4000', company: 'Sample Home Loans', password: 'demo-lender-123', role: 'client', isLender: true });
+db.prepare("INSERT INTO property_clients (property_id, user_id, access) VALUES (?,?,'client')").run(searchBuy, buyerUser);
+db.prepare("INSERT INTO property_clients (property_id, user_id, access) VALUES (?,?,'lender')").run(searchBuy, lenderUser);
+db.prepare("INSERT INTO property_clients (property_id, user_id, access) VALUES (?,?,'lender')").run(escrowBuy, lenderUser);
+for (const t of ['First conversation', 'Buyer representation agreement signed', 'Pre-approval letter received', 'Search criteria set', 'Home search started', 'Offer submitted']) {
+  db.prepare("UPDATE milestones SET status = 'done', done_date = ? WHERE property_id = ? AND title = ?").run(day(-10), searchBuy, t);
+}
+const hm = db.prepare('INSERT INTO homes (property_id, address, city, price, beds, baths, sqft, url, note, reaction, reacted_at, tour_requested_at, tour_date, tour_time) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+hm.run(searchBuy, '2210 Sample Bluff Dr', 'North Park', 925000, 3, 2, 1650, 'https://example.com/listing/1', 'Great light and a real garage. Priced right.', 'like', new Date().toISOString().slice(0, 19).replace('T', ' '), new Date().toISOString().slice(0, 19).replace('T', ' '), day(2), '10:30');
+hm.run(searchBuy, '48 Placeholder Pl', 'Kensington', 899000, 3, 2.5, 1720, 'https://example.com/listing/2', 'Townhome, newer build, low HOA.', null, null, null, null, null);
+hm.run(searchBuy, '915 Example Ct', 'North Park', 875000, 4, 2, 1810, null, null, 'dislike', new Date(Date.now() - 5 * 3600000).toISOString().slice(0, 19).replace('T', ' '), null, null, null);
+db.prepare("INSERT INTO comments (property_id, target, target_id, user_id, body) VALUES (?, 'home', 1, ?, ?)").run(searchBuy, buyerUser, 'Love the kitchen. Is the garage big enough for two cars?');
+const bo = db.prepare("INSERT INTO offers (property_id, received_date, address, price, status, financing, down_payment, deposit, escrow_days, contingencies, listing_agent, listing_agent_phone, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
+  .run(searchBuy, day(-3), '77 Demo Ridge Rd', 880000, 'Countered', 'Conventional loan', '20%', 26400, 30, 'Inspection 17 days, appraisal 17 days, loan 21 days', 'Jesse Example', '(555) 010-5000', 'Their counter is fair. I would meet in the middle on price and keep our 30 days.').lastInsertRowid;
+const evt = db.prepare('INSERT INTO offer_events (offer_id, kind, date, price, terms) VALUES (?,?,?,?,?)');
+evt.run(bo, 'counter_seller', day(-2), 905000, 'Seller wants a 21-day escrow and to stay 3 days after closing.');
+evt.run(bo, 'counter_buyer', day(-1), 892000, '30-day escrow, seller may stay 2 days after closing.');
+db.prepare('UPDATE properties SET emd_amount = 33600, escrow_company = ? WHERE id = ?').run('Sample Escrow Co.', escrowBuy);
+for (const [t, d] of [['Earnest money deposit due', -9], ['Inspection contingency removal due', 5], ['Appraisal contingency removal due', 5], ['Loan contingency removal due', 9]]) {
+  db.prepare('UPDATE milestones SET due_date = ? WHERE property_id = ? AND title = ?').run(day(d), escrowBuy, t);
+}
 deal('buyer', '300 Example Terrace', '90001', { stage: 'closed', sale_price: 845000, escrow_opened: day(-125), closing_date: day(-92), client_name: 'Harper Sample', client_email: 'harper@example.com' });
 
 const vd = db.prepare('INSERT INTO vendors (category, name, company, phone, notes) VALUES (?,?,?,?,?)');
@@ -103,4 +130,4 @@ vd.run('Gardener / Landscaper', 'Sam Example', 'Sample Gardens', '(555) 010-2011
 vd.run('Painter', 'Jamie Example', 'Sample Painting', '(555) 010-2012', 'Painted three of my listings this year.');
 db.prepare('UPDATE properties SET value_url = ? WHERE id = ?').run('https://example.com/home-value-report', pid);
 
-console.log('Demo data created.\n  Agent:  agent@example.com / demo-agent-123\n  Client: client@example.com / demo-client-123');
+console.log('Demo data created.\n  Agent:  agent@example.com / demo-agent-123\n  Seller: client@example.com / demo-client-123\n  Buyer:  buyer@example.com / demo-buyer-123\n  Lender: lender@example.com / demo-lender-123');

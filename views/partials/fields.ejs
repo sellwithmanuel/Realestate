@@ -13,7 +13,7 @@
     <textarea name="<%= f.name %>" rows="3" <%= f.required ? 'required' : '' %>><%= v %></textarea>
   <% } else { %>
     <input type="<%= f.type === 'money' || f.type === 'percent' ? 'number' : f.type %>" name="<%= f.name %>" value="<%= v %>"
-      <%= f.required ? 'required' : '' %> <%- f.type === 'money' ? 'min="0" step="1" inputmode="numeric" placeholder="$"' : f.type === 'percent' ? 'min="0" max="100" step="any" inputmode="decimal" placeholder="%"' : '' %>
+      <%= f.required ? 'required' : '' %> <%- f.type === 'money' ? 'min="0" step="1" inputmode="numeric" placeholder="$"' : f.type === 'percent' ? 'min="0" max="100" step="any" inputmode="decimal" placeholder="%"' : f.type === 'number' ? 'min="0" step="any"' : '' %>
       <% if (f.list) { %>list="list-<%= f.name %>"<% } %>>
     <% if (f.list) { %><datalist id="list-<%= f.name %>"><% f.list.forEach(function (o) { %><option value="<%= o %>"><% }) %></datalist><% } %>
   <% } %>

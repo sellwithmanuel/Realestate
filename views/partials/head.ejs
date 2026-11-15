@@ -15,7 +15,7 @@
   <% if (user) { %>
   <nav>
     <% if (user.role === 'agent') { %><a href="/admin">Dashboard</a><a href="/admin/vendors">Trusted pros</a><a href="/admin/settings">Settings</a>
-    <% } else { %><a href="/portal">My home</a><% if (hasVendors) { %><a href="/vendors">Trusted pros</a><% } %><% } %>
+    <% } else if (!user.is_lender) { %><a href="/portal">My home</a><% if (hasVendors) { %><a href="/vendors">Trusted pros</a><% } %><% } %>
     <a href="/account"><%= user.name.split(' ')[0] %>’s account</a>
     <form method="post" action="/logout"><button class="link">Sign out</button></form>
   </nav>

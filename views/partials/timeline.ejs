@@ -1,0 +1,31 @@
+<%# Milestones grouped by phase. Finished phases start collapsed; a milestone with details expands on click. %>
+<% PHASES.forEach(function (ph) { var ms = rows.milestones.filter(function (m) { return m.phase === ph[0]; }); if (!ms.length) return;
+   var d = ms.filter(function (m) { return m.status === 'done'; }).length; %>
+<details class="phase" <%= d < ms.length ? 'open' : '' %>>
+  <summary><span><%= ph[1] %></span><small><%= d === ms.length ? 'Complete' : d + ' of ' + ms.length %></small></summary>
+  <ol class="timeline">
+    <% ms.forEach(function (m) {
+         var paid = m.paid_by ? (m.paid_by === 'Split' ? 'Split buyer / seller' : m.paid_by === 'Agent' ? 'Covered by your agent' : 'Paid by ' + m.paid_by.toLowerCase()) + (m.cost ? ' · ' + money(m.cost) : '') : '';
+         var more = m.notes || m.vendor || m.vendor_contact || paid;
+         var whenText = m.status === 'done' ? 'Done' + (m.done_date ? ' ' + fdate(m.done_date) : '')
+           : m.due_date ? (m.status === 'in_progress' ? 'In progress · ' : '') + fdate(m.due_date) + (m.due_time ? ' at ' + ftime(m.due_time) : '')
+           : m.status === 'in_progress' ? 'In progress' : ''; %>
+    <li class="<%= m.status %>">
+      <i aria-hidden="true"><%= m.status === 'done' ? '✓' : '' %></i>
+      <% if (more) { %>
+      <details class="ms">
+        <summary><strong><%= m.title %></strong><span class="when"><%= whenText %></span></summary>
+        <% if (paid || m.vendor || m.vendor_contact) { %>
+        <p class="meta"><% if (paid) { %><span class="tag"><%= paid %></span><% } %>
+          <% if (m.vendor) { %><span><%= m.vendor %></span><% } %><% if (m.vendor_contact) { %><span><%= m.vendor_contact %></span><% } %></p>
+        <% } %>
+        <% if (m.notes) { %><p class="note"><%= m.notes %></p><% } %>
+      </details>
+      <% } else { %>
+      <div class="ms"><strong><%= m.title %></strong><span class="when"><%= whenText %></span></div>
+      <% } %>
+    </li>
+    <% }) %>
+  </ol>
+</details>
+<% }) %>
