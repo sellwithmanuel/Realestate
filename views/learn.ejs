@@ -1,0 +1,41 @@
+<%- include('partials/head', { title: 'Learn' }) %>
+<p><a href="<%= back %>">← <%= user.role === 'agent' ? 'Edit these answers' : 'Back to my home' %></a></p>
+<h1>What does it all mean?</h1>
+<p class="muted">Plain answers to the questions <%= sides.length === 1 ? sides[0] + 's' : 'buyers and sellers' %> ask most. Tap a question to open it.</p>
+<% if (user.role === 'agent') { %>
+<div class="tabs"><a class="sub <%= sides.length === 2 ? 'on' : '' %>" href="/learn">Everything</a><a class="sub <%= sides.length === 1 && sides[0] === 'buyer' ? 'on' : '' %>" href="/learn?for=buyer">What buyers see</a><a class="sub <%= sides.length === 1 && sides[0] === 'seller' ? 'on' : '' %>" href="/learn?for=seller">What sellers see</a></div>
+<% } %>
+<label class="learnsearch"><span>Search</span><input type="search" id="learnq" placeholder="e.g. appraisal, deposit, title" autocomplete="off"></label>
+<p class="muted" id="learnnone" hidden>Nothing matches that. Try another word, or message <%= agent ? agent.name.split(' ')[0] : 'your agent' %>.</p>
+
+<% groups.forEach(function (g) { %>
+<section class="card learn">
+  <h2><%= g.category %></h2>
+  <% g.topics.forEach(function (t) { %>
+  <details class="qa" id="t<%= t.id %>"><summary><%= t.question %></summary><p class="note"><%= t.answer %></p></details>
+  <% }) %>
+</section>
+<% }) %>
+
+<p class="muted small">This is general information about how home sales usually work in California, not legal, tax or lending advice. Your contract and your situation decide what applies to you, so ask <%= agent ? agent.name.split(' ')[0] : 'your agent' %> before making a decision.</p>
+<script>
+(function () {
+  var q = document.getElementById('learnq'), none = document.getElementById('learnnone');
+  q.addEventListener('input', function () {
+    var words = q.value.toLowerCase().split(/\s+/).filter(Boolean), shown = 0;
+    document.querySelectorAll('.learn').forEach(function (card) {
+      var any = false;
+      card.querySelectorAll('.qa').forEach(function (d) {
+        var text = d.textContent.toLowerCase();
+        var match = words.every(function (w) { return text.indexOf(w) >= 0; });
+        d.hidden = !match;
+        d.open = match && words.length > 0;
+        if (match) { any = true; shown++; }
+      });
+      card.hidden = !any;
+    });
+    none.hidden = shown > 0;
+  });
+})();
+</script>
+<%- include('partials/foot') %>

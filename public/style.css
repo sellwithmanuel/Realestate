@@ -316,3 +316,15 @@ details.ms > summary strong { display: block; }
 p.checkline { margin: 0 0 12px; }
 p.checkline label { display: inline; }
 .listrow .comments { max-width: 520px; }
+
+/* learn */
+.learnsearch { max-width: 420px; margin: 0 0 16px; }
+.qa { border-top: 1px solid var(--line); padding: 12px 0; }
+.qa:first-of-type { border-top: 0; }
+.qa > summary { font-weight: 700; padding: 0; list-style: none; display: flex; justify-content: space-between; gap: 12px; }
+.qa > summary::-webkit-details-marker { display: none; }
+.qa > summary::after { content: "+"; color: var(--muted); font-size: 1.2rem; line-height: 1; flex: none; }
+.qa[open] > summary::after { content: "–"; }
+.qa .note { margin-top: 8px; color: #3a3f52; max-width: 68ch; }
+.editrow textarea[name=answer] { min-height: 150px; }
+.tabs + .learnsearch { margin-top: 14px; }

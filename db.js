@@ -195,6 +195,24 @@ addColumn('listing_agent', 'TEXT', 'offers');
 addColumn('listing_agent_phone', 'TEXT', 'offers');
 addColumn('listing_agent_email', 'TEXT', 'offers');
 
+// Learn tab: plain-language answers, editable by the agent. Filled with starter content once.
+db.exec(`
+CREATE TABLE IF NOT EXISTS topics (
+  id INTEGER PRIMARY KEY,
+  audience TEXT NOT NULL DEFAULT 'both',
+  category TEXT NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL,
+  sort INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+`);
+if (!db.prepare("SELECT 1 FROM meta WHERE key = 'topics_seeded'").get()) {
+  const ins = db.prepare('INSERT INTO topics (audience, category, question, answer, sort) VALUES (?,?,?,?,?)');
+  db.transaction(() => {
+    require('./learn-content').forEach(([audience, category, question, answer], i) => ins.run(audience, category, question, answer, (i + 1) * 10));
+    db.prepare("INSERT INTO meta (key, value) VALUES ('topics_seeded', '1')").run();
+  })();
+}
+
 const brandDir = path.join(dir, 'uploads', 'brand');
 const docsDir = path.join(dir, 'uploads', 'docs');
 fs.mkdirSync(brandDir, { recursive: true });

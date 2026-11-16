@@ -1,0 +1,32 @@
+<%- include('../partials/head', { title: 'Learn' }) %>
+<div class="adminhead">
+  <div><h1>Learn</h1><p class="muted">The answers your clients see under “Learn”. They are written in your voice — change any of them, or add your own.</p></div>
+  <a class="btn ghost" href="/learn">View what clients see →</a>
+</div>
+<section class="card">
+  <details class="add first">
+    <summary>+ Add a question</summary>
+    <form method="post" action="/admin/learn">
+      <%- include('../partials/fields', { def: { fields: TOPIC_FIELDS }, r: {} }) %>
+      <button class="btn">Add</button>
+    </form>
+  </details>
+</section>
+<% groups.forEach(function (g) { %>
+<h3 class="zip"><%= g.category %> <small><%= g.topics.length %></small></h3>
+<section class="card">
+  <% g.topics.forEach(function (t) { %>
+  <div class="editrow" id="t<%= t.id %>">
+    <details>
+      <summary><%= t.question %> <span class="pill"><%= t.audience === 'both' ? 'Everyone' : t.audience === 'buyer' ? 'Buyers' : 'Sellers' %></span></summary>
+      <form method="post" action="/admin/learn/<%= t.id %>">
+        <%- include('../partials/fields', { def: { fields: TOPIC_FIELDS }, r: t }) %>
+        <button class="btn">Save</button>
+        <button class="link danger" formaction="/admin/learn/<%= t.id %>/delete" formnovalidate onclick="return confirm('Delete this question?')">Delete</button>
+      </form>
+    </details>
+  </div>
+  <% }) %>
+</section>
+<% }) %>
+<%- include('../partials/foot') %>

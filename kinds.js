@@ -153,6 +153,14 @@ const VENDOR_FIELDS = [
   { name: 'notes', label: 'Why you recommend them', type: 'textarea', wide: true },
 ];
 
+const TOPIC_FIELDS = [
+  { name: 'question', label: 'Question', type: 'text', required: true, wide: true },
+  { name: 'answer', label: 'Answer', type: 'textarea', required: true, wide: true },
+  { name: 'audience', label: 'Who sees it', type: 'select', options: [['both', 'Buyers and sellers'], ['buyer', 'Buyers only'], ['seller', 'Sellers only']] },
+  { name: 'category', label: 'Section', type: 'text', required: true, list: ['The basics', 'Offers & contracts', 'Money & deposit', 'Inspections & repairs', 'Appraisal & loan', 'Title & closing'] },
+  { name: 'sort', label: 'Order (lower shows first)', type: 'number' },
+];
+
 const OFFER_EVENTS = [
   ['counter_seller', 'Seller countered', 'Countered'],
   ['counter_buyer', 'We countered back', 'Countered'],
@@ -284,4 +292,4 @@ const KINDS = {
   },
 };
 
-module.exports = { OFFER_EVENTS, STAGES_BUYER, PHASES_BUYER, SIDES, DEFAULT_MILESTONES_BUYER, STAGES, PHASES, STATUSES, PAID_BY, DEFAULT_MILESTONES, PROPERTY_FIELDS, VENDOR_FIELDS, KINDS, label };
+module.exports = { TOPIC_FIELDS, OFFER_EVENTS, STAGES_BUYER, PHASES_BUYER, SIDES, DEFAULT_MILESTONES_BUYER, STAGES, PHASES, STATUSES, PAID_BY, DEFAULT_MILESTONES, PROPERTY_FIELDS, VENDOR_FIELDS, KINDS, label };

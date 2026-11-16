@@ -5,7 +5,7 @@ const express = require('express');
 const multer = require('multer');
 const { db, brandDir, docsDir, hashPassword, verifyPassword, createUser, createProperty } = require('./db');
 const mailer = require('./mailer');
-const { STAGES_BUYER, PHASES_BUYER, STAGES, PHASES, STATUSES, PROPERTY_FIELDS, VENDOR_FIELDS, KINDS, label } = require('./kinds');
+const { TOPIC_FIELDS, STAGES_BUYER, PHASES_BUYER, STAGES, PHASES, STATUSES, PROPERTY_FIELDS, VENDOR_FIELDS, KINDS, label } = require('./kinds');
 
 const app = express();
 const PROD = process.env.NODE_ENV === 'production';
@@ -514,6 +514,55 @@ app.post('/p/:id/messages', requireUser, (req, res) => {
     });
   }
   res.json({ ok: true });
+});
+
+// Learn: plain-language answers. Clients see what fits their side; the agent sees everything.
+function topicsFor(sides) {
+  const rows = db.prepare('SELECT * FROM topics ORDER BY sort, id').all().filter((t) => t.audience === 'both' || sides.includes(t.audience));
+  const groups = [];
+  for (const t of rows) {
+    let g = groups.find((x) => x.category === t.category);
+    if (!g) groups.push((g = { category: t.category, topics: [] }));
+    g.topics.push(t);
+  }
+  return groups;
+}
+app.get('/learn', requireUser, (req, res) => {
+  const mine = db
+    .prepare("SELECT DISTINCT p.side, p.id FROM properties p JOIN property_clients pc ON pc.property_id = p.id WHERE pc.user_id = ? AND pc.access = 'client'")
+    .all(req.user.id);
+  if (req.user.role !== 'agent' && !mine.length) return res.status(404).render('message', { title: 'Not found', message: 'We could not find that page.' });
+  const sides = req.user.role === 'agent' ? (['buyer', 'seller'].includes(req.query.for) ? [req.query.for] : ['buyer', 'seller']) : mine.map((m) => m.side);
+  res.render('learn', {
+    groups: topicsFor(sides), sides, back: mine.length ? `/p/${mine[0].id}` : '/admin/learn',
+    agent: db.prepare("SELECT name FROM users WHERE role = 'agent' ORDER BY id LIMIT 1").get(),
+  });
+});
+
+app.get('/admin/learn', requireAgent, (req, res) => res.render('admin/learn', { groups: topicsFor(['buyer', 'seller']), TOPIC_FIELDS }));
+app.post('/admin/learn', requireAgent, (req, res) => {
+  const v = readFields(TOPIC_FIELDS, req.body);
+  if (!v) flash(req, 'Please fill in the question, the answer and the section.');
+  else {
+    if (v.sort == null) v.sort = db.prepare('SELECT coalesce(max(sort), 0) + 10 AS s FROM topics WHERE category = ?').get(v.category).s;
+    const cols = Object.keys(v);
+    db.prepare(`INSERT INTO topics (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map((c) => v[c]));
+  }
+  res.redirect('/admin/learn');
+});
+app.post('/admin/learn/:id', requireAgent, (req, res) => {
+  const v = readFields(TOPIC_FIELDS, req.body);
+  if (!v) flash(req, 'Please fill in the question, the answer and the section.');
+  else {
+    if (v.sort == null) v.sort = 0;
+    const cols = Object.keys(v);
+    db.prepare(`UPDATE topics SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`).run(...cols.map((c) => v[c]), req.params.id);
+  }
+  res.redirect(`/admin/learn#t${req.params.id}`);
+});
+app.post('/admin/learn/:id/delete', requireAgent, (req, res) => {
+  db.prepare('DELETE FROM topics WHERE id = ?').run(req.params.id);
+  res.redirect('/admin/learn');
 });
 
 // Trusted pros, visible to every signed-in client.
